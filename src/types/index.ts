@@ -229,8 +229,8 @@ export const EvaluateOptionsSchema = z.object({
         completed: number,
         total: number,
         index: number,
-        evalStep: RunEvalOptions,
-        metrics: PromptMetrics,
+        evalStep?: RunEvalOptions,
+        metrics?: PromptMetrics,
       ) => void
     >((v) => typeof v === 'function')
     .optional(),

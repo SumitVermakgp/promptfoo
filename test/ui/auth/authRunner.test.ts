@@ -14,10 +14,45 @@ vi.mock('../../../src/ui/interactiveCheck', () => ({
   shouldUseInkUI: vi.fn(() => false),
 }));
 
+// Mock initInkApp to avoid loading ink/React, and trigger onController in the render callback
+vi.mock('../../../src/ui/initInkApp', () => ({
+  initInkApp: vi.fn(async (options: any) => {
+    const resolvers: Record<string, (v: any) => void> = {};
+    const promises: Record<string, Promise<any>> = {};
+    for (const [key] of Object.entries(options.channels || {})) {
+      promises[key] = new Promise((resolve) => {
+        resolvers[key] = resolve;
+      });
+    }
+
+    // Call render to get element and trigger onController
+    const element = options.render(resolvers);
+    const appProps = element?.props?.children?.props || element?.props;
+    if (appProps?.onController) {
+      const { createAuthController } = await import('../../../src/ui/auth/AuthApp');
+      appProps.onController(createAuthController(vi.fn()));
+    }
+
+    const mockCleanup = vi.fn();
+    return {
+      renderResult: {
+        cleanup: mockCleanup,
+        clear: vi.fn(),
+        unmount: vi.fn(),
+        rerender: vi.fn(),
+        waitUntilExit: vi.fn().mockResolvedValue(undefined),
+        instance: {},
+      },
+      cleanup: mockCleanup,
+      promises,
+    };
+  }),
+}));
+
 // Mock AuthApp to avoid loading ink/React
 vi.mock('../../../src/ui/auth/AuthApp', () => ({
   AuthApp: vi.fn(() => null),
-  createAuthController: vi.fn(() => ({
+  createAuthController: vi.fn((_setProgress: unknown) => ({
     setPhase: vi.fn(),
     setStatusMessage: vi.fn(),
     showTeamSelector: vi.fn(),
@@ -26,36 +61,11 @@ vi.mock('../../../src/ui/auth/AuthApp', () => ({
   })),
 }));
 
-vi.mock('../../../src/ui/render', () => ({
-  renderInteractive: vi.fn().mockResolvedValue({
-    cleanup: vi.fn(),
-    clear: vi.fn(),
-    unmount: vi.fn(),
-    rerender: vi.fn(),
-    waitUntilExit: vi.fn().mockResolvedValue(undefined),
-    frames: [],
-    lastFrame: vi.fn(),
-    instance: {},
-  }),
-}));
-
 describe('authRunner', () => {
   beforeEach(async () => {
     vi.clearAllMocks();
-    // Reset mocks to default return values
     const { shouldUseInkUI } = await import('../../../src/ui/interactiveCheck');
-    const { renderInteractive } = await import('../../../src/ui/render');
     vi.mocked(shouldUseInkUI).mockReturnValue(false);
-    vi.mocked(renderInteractive).mockResolvedValue({
-      cleanup: vi.fn(),
-      clear: vi.fn(),
-      unmount: vi.fn(),
-      rerender: vi.fn(),
-      waitUntilExit: vi.fn().mockResolvedValue(undefined),
-      frames: [],
-      lastFrame: vi.fn(),
-      instance: {},
-    } as any);
   });
 
   describe('shouldUseInkAuth', () => {
@@ -75,23 +85,6 @@ describe('authRunner', () => {
 
   describe('initInkAuth', () => {
     it('should initialize and return controller and promises', async () => {
-      const mockRenderResult = {
-        cleanup: vi.fn(),
-        clear: vi.fn(),
-        unmount: vi.fn(),
-        rerender: vi.fn(),
-        waitUntilExit: vi.fn().mockResolvedValue(undefined),
-        frames: [],
-        lastFrame: vi.fn().mockReturnValue(''),
-        instance: { stdin: {} },
-      };
-
-      const { shouldUseInkUI } = await import('../../../src/ui/interactiveCheck');
-      const { renderInteractive } = await import('../../../src/ui/render');
-
-      vi.mocked(shouldUseInkUI).mockReturnValue(true);
-      vi.mocked(renderInteractive).mockResolvedValue(mockRenderResult as any);
-
       const { initInkAuth } = await import('../../../src/ui/auth/authRunner');
 
       const result = await initInkAuth({ initialPhase: 'logging_in' });
@@ -108,37 +101,20 @@ describe('authRunner', () => {
       expect(typeof result.controller.error).toBe('function');
     });
 
-    it('should call renderInteractive with AuthApp element', async () => {
-      const mockRenderResult = {
-        cleanup: vi.fn(),
-        clear: vi.fn(),
-        unmount: vi.fn(),
-        rerender: vi.fn(),
-        waitUntilExit: vi.fn().mockResolvedValue(undefined),
-        frames: [],
-        lastFrame: vi.fn().mockReturnValue(''),
-        instance: { stdin: {} },
-      };
-
-      const { shouldUseInkUI } = await import('../../../src/ui/interactiveCheck');
-      const { renderInteractive } = await import('../../../src/ui/render');
-
-      vi.mocked(shouldUseInkUI).mockReturnValue(true);
-      vi.mocked(renderInteractive).mockResolvedValue(mockRenderResult as any);
-
+    it('should call initInkApp with correct options', async () => {
+      const { initInkApp } = await import('../../../src/ui/initInkApp');
       const { initInkAuth } = await import('../../../src/ui/auth/authRunner');
 
       await initInkAuth({ initialPhase: 'logging_in' });
 
-      expect(renderInteractive).toHaveBeenCalledTimes(1);
-      const [element, options] = vi.mocked(renderInteractive).mock.calls[0];
-      expect((element as any).props.children.props.initialPhase).toBe('logging_in');
-      expect(options).toEqual(
-        expect.objectContaining({
-          exitOnCtrlC: false,
-          patchConsole: true,
-        }),
-      );
+      expect(initInkApp).toHaveBeenCalledTimes(1);
+      const call = vi.mocked(initInkApp).mock.calls[0][0];
+      expect(call.componentName).toBe('AuthApp');
+      expect(call.signalContext).toBe('auth');
+      expect(call.channels).toEqual({
+        teamSelection: undefined,
+        result: undefined,
+      });
     });
   });
 });

@@ -542,6 +542,8 @@ export async function doGenerateRedteam(
     return (event: SynthesizeProgressEvent) => {
       switch (event.type) {
         case 'init':
+          // Reset per-context tracking state so each context starts fresh
+          pluginsStarted = false;
           controller.init(event.plugins, event.strategies, event.totalTests);
           break;
         case 'purpose':
@@ -698,12 +700,25 @@ export async function doGenerateRedteam(
       finalInjectVar = result.injectVar;
       failedPlugins = result.failedPlugins;
     }
+  } catch (err) {
+    // Emit error event to Ink UI so it shows the error state
+    if (inkController) {
+      inkController.error(err instanceof Error ? err.message : String(err));
+    }
+    throw err;
   } finally {
-    // Cleanup Ink UI after generation
+    // Cleanup Ink UI after generation — wait for user to dismiss (press q/Enter)
     if (inkUI) {
-      // Wait a bit for the user to see the final state before cleanup
-      await new Promise((resolve) => setTimeout(resolve, 2000));
-      inkUI.cleanup();
+      try {
+        // Wait for user to acknowledge (press q or Enter in complete/error state)
+        // with a 30-second timeout to prevent indefinite hangs in non-interactive environments
+        await Promise.race([
+          inkUI.waitForExit(),
+          new Promise<void>((resolve) => setTimeout(resolve, 30_000)),
+        ]);
+      } finally {
+        inkUI.cleanup();
+      }
     }
   }
 

@@ -626,6 +626,7 @@ export async function doEval(
     // Track pending share for display after table (shared across Ink UI and table display)
     let pendingInkShare: Promise<string | null> | null = null;
     let inkUISucceeded = false;
+    let evalStarted = false;
 
     if (useInkUI) {
       try {
@@ -691,6 +692,7 @@ export async function doEval(
           inkResult.controller.start();
 
           // Run evaluation with Ink progress callback
+          evalStarted = true;
           ret = await evaluate(testSuite, evalRecord, inkResult.evaluateOptions);
 
           // Mark success immediately after evaluate() returns to prevent double-evaluation in catch block
@@ -725,8 +727,8 @@ export async function doEval(
               }
             }
 
-            // Get final stats
-            const results = await evalRecord.getResults();
+            // Get final stats from in-memory results (not DB) to handle --no-write correctly
+            const results = ret.results;
             const passed = results.filter((r) => r.success).length;
             const failed = results.filter((r) => !r.success && !r.error).length;
             const errors = results.filter((r) => r.error).length;
@@ -786,11 +788,22 @@ export async function doEval(
 
         // pendingInkShare (if started) is resolved via the unified share path below
       } catch (inkError) {
-        // Fall back to standard CLI output if Ink UI fails
-        logger.warn(
-          `Interactive UI failed, falling back to standard output: ${inkError instanceof Error ? inkError.message : inkError}`,
-        );
         cliState.inkUI = false;
+        if (evalStarted) {
+          // evaluate() was called — even if it threw, provider calls were made.
+          // Do NOT re-evaluate to avoid duplicate calls and corrupted state.
+          inkUISucceeded = true; // Prevent fallback re-evaluation
+          logger.warn(
+            `Ink UI error after evaluation started (results may be partial): ${inkError instanceof Error ? inkError.message : inkError}`,
+          );
+          // Re-throw so the outer error handling can report the real failure
+          throw inkError;
+        } else {
+          // Ink UI failed before evaluate() was called — safe to fall back
+          logger.warn(
+            `Interactive UI failed, falling back to standard output: ${inkError instanceof Error ? inkError.message : inkError}`,
+          );
+        }
       }
     }
 

@@ -42,23 +42,18 @@ export interface AuthAppProps {
   /** Initial phase */
   initialPhase?: AuthPhase;
   /** Called when a team is selected */
-  onTeamSelect?: (team: TeamInfo) => void;
+  onTeamSelect?: (team: TeamInfo | undefined) => void;
   /** Called when auth completes successfully */
   onComplete?: (userInfo: UserInfo) => void;
   /** Called when auth fails */
   onError?: (error: string) => void;
   /** Called when user exits */
   onExit?: () => void;
+  /** Called with the controller after mount */
+  onController?: (controller: AuthController) => void;
 }
 
-// Type-safe global state for auth UI controller communication.
-// Uses uniquely-prefixed property names to avoid collisions. Only one instance
-// should be active at a time (enforced by the CLI's single-command architecture).
-interface AuthGlobal {
-  __authSetProgress?: React.Dispatch<React.SetStateAction<AuthProgress>>;
-}
-
-const authGlobal = globalThis as typeof globalThis & AuthGlobal;
+type SetProgressFn = React.Dispatch<React.SetStateAction<AuthProgress>>;
 
 function TeamSelector({
   teams,
@@ -101,6 +96,7 @@ export function AuthApp({
   onComplete,
   onError: _onError,
   onExit,
+  onController,
 }: AuthAppProps) {
   const { exit } = useApp();
   const [progress, setProgress] = useState<AuthProgress>({
@@ -115,9 +111,8 @@ export function AuthApp({
         const selectedTeam = progress.teams[progress.selectedTeamIndex || 0];
         onTeamSelect?.(selectedTeam);
       } else if (key.escape) {
-        // Select first team as default
-        const defaultTeam = progress.teams[0];
-        onTeamSelect?.(defaultTeam);
+        // Signal cancellation — caller uses getDefaultTeam() for the canonical default
+        onTeamSelect?.(undefined);
       }
       return;
     }
@@ -133,13 +128,12 @@ export function AuthApp({
     }
   });
 
-  // Expose update function for external control
+  // Expose controller via callback prop instead of global state
   useEffect(() => {
-    authGlobal.__authSetProgress = setProgress;
-    return () => {
-      delete authGlobal.__authSetProgress;
-    };
-  }, []);
+    if (onController) {
+      onController(createAuthController(setProgress));
+    }
+  }, [onController]);
 
   const phaseMessages: Record<AuthPhase, string> = {
     idle: 'Ready to authenticate',
@@ -247,20 +241,18 @@ export interface AuthController {
   error(message: string): void;
 }
 
-export function createAuthController(): AuthController {
-  const getSetProgress = () => authGlobal.__authSetProgress;
-
+export function createAuthController(setProgress: SetProgressFn): AuthController {
   return {
     setPhase(phase) {
-      getSetProgress()?.((prev: AuthProgress) => ({ ...prev, phase }));
+      setProgress((prev: AuthProgress) => ({ ...prev, phase }));
     },
 
     setStatusMessage(message) {
-      getSetProgress()?.((prev: AuthProgress) => ({ ...prev, statusMessage: message }));
+      setProgress((prev: AuthProgress) => ({ ...prev, statusMessage: message }));
     },
 
     showTeamSelector(teams) {
-      getSetProgress()?.((prev: AuthProgress) => ({
+      setProgress((prev: AuthProgress) => ({
         ...prev,
         phase: 'selecting_team',
         teams,
@@ -269,7 +261,7 @@ export function createAuthController(): AuthController {
     },
 
     complete(userInfo) {
-      getSetProgress()?.((prev: AuthProgress) => ({
+      setProgress((prev: AuthProgress) => ({
         ...prev,
         phase: 'success',
         userInfo,
@@ -277,7 +269,7 @@ export function createAuthController(): AuthController {
     },
 
     error(message) {
-      getSetProgress()?.((prev: AuthProgress) => ({
+      setProgress((prev: AuthProgress) => ({
         ...prev,
         phase: 'error',
         error: message,

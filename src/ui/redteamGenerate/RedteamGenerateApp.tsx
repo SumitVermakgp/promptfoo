@@ -10,13 +10,9 @@ import type React from 'react';
 import { Box, Text, useApp, useInput } from 'ink';
 import { ProgressBar } from '../components/shared/ProgressBar';
 
-// Type-safe global state for redteam generate UI controller communication.
-// Uses uniquely-prefixed property names to avoid collisions. Only one instance
-// should be active at a time (enforced by the CLI's single-command architecture).
-interface RedteamGenerateGlobal {
-  __redteamGenerateSetProgress?: React.Dispatch<React.SetStateAction<GenerateProgress>>;
-}
-const redteamGenerateGlobal = globalThis as typeof globalThis & RedteamGenerateGlobal;
+// Callback for exposing the setProgress function to the controller.
+// Set via the onController prop instead of global state.
+type SetProgressFn = React.Dispatch<React.SetStateAction<GenerateProgress>>;
 
 export interface PluginProgress {
   id: string;
@@ -51,6 +47,8 @@ export interface RedteamGenerateAppProps {
   onComplete?: (result: { testsGenerated: number; outputPath?: string }) => void;
   /** Called when user cancels */
   onCancel?: () => void;
+  /** Called with the controller after mount, replacing the global-variable pattern */
+  onController?: (controller: RedteamGenerateController) => void;
 }
 
 function PluginRow({ plugin }: { plugin: PluginProgress }) {
@@ -140,7 +138,11 @@ function ElapsedTime({ startTime, endTime }: { startTime: number; endTime?: numb
   );
 }
 
-export function RedteamGenerateApp({ onComplete: _onComplete, onCancel }: RedteamGenerateAppProps) {
+export function RedteamGenerateApp({
+  onComplete: _onComplete,
+  onCancel,
+  onController,
+}: RedteamGenerateAppProps) {
   const { exit } = useApp();
   const [progress, setProgress] = useState<GenerateProgress>({
     phase: 'init',
@@ -177,14 +179,12 @@ export function RedteamGenerateApp({ onComplete: _onComplete, onCancel }: Redtea
     };
   }, [progress]);
 
-  // Expose update function for external control
+  // Expose controller via callback prop instead of global state
   useEffect(() => {
-    // This would be called by the controller
-    redteamGenerateGlobal.__redteamGenerateSetProgress = setProgress;
-    return () => {
-      delete redteamGenerateGlobal.__redteamGenerateSetProgress;
-    };
-  }, []);
+    if (onController) {
+      onController(createRedteamGenerateController(setProgress));
+    }
+  }, [onController]);
 
   const phaseLabels: Record<string, string> = {
     init: 'Initializing...',
@@ -316,12 +316,12 @@ export interface RedteamGenerateController {
   error(message: string): void;
 }
 
-export function createRedteamGenerateController(): RedteamGenerateController {
-  const getSetProgress = () => redteamGenerateGlobal.__redteamGenerateSetProgress;
-
+export function createRedteamGenerateController(
+  setProgress: SetProgressFn,
+): RedteamGenerateController {
   return {
     init(plugins, strategies, totalTests) {
-      getSetProgress()?.((prev: GenerateProgress) => ({
+      setProgress((prev: GenerateProgress) => ({
         ...prev,
         phase: 'init',
         plugins: plugins.map((id) => ({
@@ -341,7 +341,7 @@ export function createRedteamGenerateController(): RedteamGenerateController {
     },
 
     setPurpose(purpose) {
-      getSetProgress()?.((prev: GenerateProgress) => ({
+      setProgress((prev: GenerateProgress) => ({
         ...prev,
         phase: 'purpose',
         purpose,
@@ -349,7 +349,7 @@ export function createRedteamGenerateController(): RedteamGenerateController {
     },
 
     setEntities(entities) {
-      getSetProgress()?.((prev: GenerateProgress) => ({
+      setProgress((prev: GenerateProgress) => ({
         ...prev,
         phase: 'entities',
         entities,
@@ -357,14 +357,14 @@ export function createRedteamGenerateController(): RedteamGenerateController {
     },
 
     startPlugins() {
-      getSetProgress()?.((prev: GenerateProgress) => ({
+      setProgress((prev: GenerateProgress) => ({
         ...prev,
         phase: 'plugins',
       }));
     },
 
     updatePlugin(id, update) {
-      getSetProgress()?.((prev: GenerateProgress) => {
+      setProgress((prev: GenerateProgress) => {
         const plugins = prev.plugins.map((p) => (p.id === id ? { ...p, ...update } : p));
         const generatedTests = plugins.reduce((sum, p) => sum + p.generated, 0);
         return { ...prev, plugins, generatedTests };
@@ -372,14 +372,14 @@ export function createRedteamGenerateController(): RedteamGenerateController {
     },
 
     startStrategies() {
-      getSetProgress()?.((prev: GenerateProgress) => ({
+      setProgress((prev: GenerateProgress) => ({
         ...prev,
         phase: 'strategies',
       }));
     },
 
     updateStrategy(id, update) {
-      getSetProgress()?.((prev: GenerateProgress) => {
+      setProgress((prev: GenerateProgress) => {
         const strategies = prev.strategies.map((s) => (s.id === id ? { ...s, ...update } : s));
         const strategyTests = strategies.reduce((sum, s) => sum + s.generated, 0);
         const pluginTests = prev.plugins.reduce((sum, p) => sum + p.generated, 0);
@@ -388,7 +388,7 @@ export function createRedteamGenerateController(): RedteamGenerateController {
     },
 
     complete(generatedTests) {
-      getSetProgress()?.((prev: GenerateProgress) => ({
+      setProgress((prev: GenerateProgress) => ({
         ...prev,
         phase: 'complete',
         generatedTests,
@@ -397,7 +397,7 @@ export function createRedteamGenerateController(): RedteamGenerateController {
     },
 
     error(message) {
-      getSetProgress()?.((prev: GenerateProgress) => ({
+      setProgress((prev: GenerateProgress) => ({
         ...prev,
         phase: 'error',
         error: message,

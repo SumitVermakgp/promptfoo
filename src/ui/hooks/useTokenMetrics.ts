@@ -32,15 +32,19 @@ function tokenUsageToPayload(usage: TokenUsage | undefined): TokenMetricsPayload
  * TokenUsageTracker uses IDs like "openai:gpt-4o-mini (OpenAiGenericProvider)"
  * but EvalContext uses IDs like "openai:gpt-4o-mini" (the label or provider.id()).
  *
- * This function strips the constructor name suffix to get the base provider ID.
+ * This function strips the constructor name suffix to get the base provider ID,
+ * then resolves via the tracker's label map (set by evalBridge.extractProviderIds).
  */
-function normalizeProviderId(trackerId: string): string {
+function resolveProviderId(trackerId: string): string {
   if (trackerId.trim() === '') {
     return 'unknown-provider';
   }
-  // Match pattern: "provider-id (ConstructorName)"
+  // Strip constructor name suffix: "openai:gpt-4o-mini (OpenAiGenericProvider)" → "openai:gpt-4o-mini"
   const match = trackerId.match(/^(.+?)\s+\([^)]+\)$/);
-  return match ? match[1] : trackerId;
+  const normalized = match ? match[1] : trackerId;
+
+  // Resolve via the tracker's label map (handles labeled providers like "GPT-4 Production")
+  return TokenUsageTracker.getInstance().resolveLabel(normalized);
 }
 
 /**
@@ -50,7 +54,7 @@ function normalizeProviderId(trackerId: string): string {
  * - Subscribes to TokenUsageTracker on mount
  * - Batches rapid updates within TOKEN_DEBOUNCE_MS window
  * - Flushes immediately on first update, then debounces subsequent updates
- * - Normalizes provider IDs to match EvalContext keys
+ * - Resolves tracker IDs to eval machine keys via the tracker's label map
  *
  * @param dispatch - The dispatch function from EvalContext
  * @param isRunning - Whether the evaluation is currently running
@@ -62,32 +66,30 @@ export function useTokenMetrics(dispatch: React.Dispatch<EvalAction>, isRunning:
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Track if we've dispatched at least once (for immediate first update)
   const hasDispatched = useRef(false);
-  // Track mounted state to prevent updates after unmount
-  const isMounted = useRef(true);
 
   /**
    * Flush all pending updates to the UI.
    */
   const flushUpdates = useCallback(() => {
-    // Don't dispatch if unmounted (prevents race with debounce timer)
-    if (!isMounted.current || pendingUpdates.current.size === 0) {
+    if (pendingUpdates.current.size === 0) {
       return;
     }
 
-    // Dispatch all pending updates
-    for (const [trackerId, usage] of pendingUpdates.current) {
-      const normalizedId = normalizeProviderId(trackerId);
+    // Snapshot and clear before dispatching to avoid losing updates
+    // that arrive during dispatch
+    const updates = new Map(pendingUpdates.current);
+    pendingUpdates.current.clear();
+    hasDispatched.current = true;
+
+    for (const [trackerId, usage] of updates) {
       dispatch({
         type: 'UPDATE_TOKEN_METRICS',
         payload: {
-          providerId: normalizedId,
+          providerId: resolveProviderId(trackerId),
           tokenUsage: tokenUsageToPayload(usage),
         },
       });
     }
-
-    pendingUpdates.current.clear();
-    hasDispatched.current = true;
   }, [dispatch]);
 
   /**
@@ -127,20 +129,18 @@ export function useTokenMetrics(dispatch: React.Dispatch<EvalAction>, isRunning:
 
   useEffect(() => {
     if (!isRunning) {
-      // Flush any remaining pending updates before clearing state
-      if (pendingUpdates.current.size > 0) {
-        flushUpdates();
-      }
-      hasDispatched.current = false;
+      // Flush any remaining pending updates before clearing state.
+      // We flush BEFORE clearing the timer so no updates are lost.
       if (debounceTimer.current) {
         clearTimeout(debounceTimer.current);
         debounceTimer.current = null;
       }
+      if (pendingUpdates.current.size > 0) {
+        flushUpdates();
+      }
+      hasDispatched.current = false;
       return;
     }
-
-    // Reset mounted state when starting
-    isMounted.current = true;
 
     // Subscribe to token usage updates
     const tracker = TokenUsageTracker.getInstance();
@@ -155,16 +155,13 @@ export function useTokenMetrics(dispatch: React.Dispatch<EvalAction>, isRunning:
     }
 
     return () => {
-      // Mark as unmounted first to prevent any pending timers from dispatching
-      isMounted.current = false;
-      // Unsubscribe
       unsubscribe();
-      // Clear any pending timers
+      // Clear any pending timers but DON'T clear pendingUpdates —
+      // the !isRunning branch above flushes them on the next render
       if (debounceTimer.current) {
         clearTimeout(debounceTimer.current);
         debounceTimer.current = null;
       }
-      pendingUpdates.current.clear();
     };
   }, [isRunning, handleUsageUpdate, flushUpdates]);
 }

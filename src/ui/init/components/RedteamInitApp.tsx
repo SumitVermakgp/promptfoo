@@ -43,6 +43,31 @@ export function RedteamInitApp({ directory, onComplete, onCancel }: RedteamInitA
   const { exit } = useApp();
   const [state, send] = useMachine(redteamInitMachine);
 
+  // Helper: XState v5's setup() generates strict match types that don't accept
+  // dotted strings for nested states. This helper checks dotted paths against
+  // the state value object tree.
+  const stateMatches = useCallback(
+    (path: string): boolean => {
+      const parts = path.split('.');
+      let current: string | Record<string, unknown> = state.value as
+        | string
+        | Record<string, unknown>;
+      for (let i = 0; i < parts.length; i++) {
+        const part = parts[i];
+        if (typeof current === 'string') {
+          return current === part && i === parts.length - 1;
+        }
+        if (typeof current === 'object' && current !== null && part in current) {
+          current = current[part] as string | Record<string, unknown>;
+        } else {
+          return false;
+        }
+      }
+      return true;
+    },
+    [state.value],
+  );
+
   // Use directory prop, falling back to state context
   const outputDirectory = directory || state.context.outputDirectory;
 
@@ -69,19 +94,19 @@ export function RedteamInitApp({ directory, onComplete, onCancel }: RedteamInitA
   // Handle machine state changes
   useEffect(() => {
     // Handle final states
-    if (state.matches('cancelled')) {
+    if (stateMatches('cancelled')) {
       onCancel?.();
       exit();
     }
 
-    if (state.matches('complete')) {
+    if (stateMatches('complete')) {
       onComplete?.({
         directory: outputDirectory,
         filesWritten: state.context.filesWritten,
       });
       // Don't auto-exit, let user see the completion screen
     }
-  }, [state, exit, onComplete, onCancel, outputDirectory]);
+  }, [state, exit, onComplete, onCancel, outputDirectory, stateMatches]);
 
   // Generate preview files when entering preview state
   const handleGeneratePreview = useCallback(async () => {
@@ -111,10 +136,10 @@ export function RedteamInitApp({ directory, onComplete, onCancel }: RedteamInitA
 
   // Generate files when entering preview state
   useEffect(() => {
-    if (state.matches('previewing') && state.context.filesToWrite.length === 0) {
+    if (stateMatches('previewing') && state.context.filesToWrite.length === 0) {
       void handleGeneratePreview();
     }
-  }, [state, handleGeneratePreview]);
+  }, [state, handleGeneratePreview, stateMatches]);
 
   // Handle file writing
   const handleWriteFiles = useCallback(async () => {
@@ -157,21 +182,17 @@ export function RedteamInitApp({ directory, onComplete, onCancel }: RedteamInitA
 
     let currentIndex = 0;
 
-    if (state.matches('enteringLabel')) {
+    if (stateMatches('enteringLabel')) {
       currentIndex = 0;
-    } else if (state.matches('selectingTargetType')) {
+    } else if (stateMatches('selectingTargetType')) {
       currentIndex = 1;
-    } else if (state.matches('enteringPurpose')) {
+    } else if (stateMatches('enteringPurpose')) {
       currentIndex = 2;
-    } else if (state.matches('selectingPluginMode') || state.matches('selectingPlugins')) {
+    } else if (stateMatches('selectingPluginMode') || stateMatches('selectingPlugins')) {
       currentIndex = 3;
-    } else if (state.matches('selectingStrategyMode') || state.matches('selectingStrategies')) {
+    } else if (stateMatches('selectingStrategyMode') || stateMatches('selectingStrategies')) {
       currentIndex = 4;
-    } else if (
-      state.matches('previewing') ||
-      state.matches('writing') ||
-      state.matches('complete')
-    ) {
+    } else if (stateMatches('previewing') || stateMatches('writing') || stateMatches('complete')) {
       currentIndex = 5;
     }
 
@@ -181,7 +202,7 @@ export function RedteamInitApp({ directory, onComplete, onCancel }: RedteamInitA
   // Render the appropriate step based on machine state
   const renderStep = () => {
     // Target label entry
-    if (state.matches('enteringLabel')) {
+    if (stateMatches('enteringLabel')) {
       return (
         <TargetLabelStep
           value={state.context.redteam.targetLabel}
@@ -195,7 +216,7 @@ export function RedteamInitApp({ directory, onComplete, onCancel }: RedteamInitA
     }
 
     // Target type selection
-    if (state.matches('selectingTargetType')) {
+    if (stateMatches('selectingTargetType')) {
       return (
         <TargetTypeStep
           onSelect={(targetType: RedteamTargetType) =>
@@ -209,7 +230,7 @@ export function RedteamInitApp({ directory, onComplete, onCancel }: RedteamInitA
     }
 
     // Purpose entry
-    if (state.matches('enteringPurpose')) {
+    if (stateMatches('enteringPurpose')) {
       return (
         <PurposeStep
           value={state.context.redteam.purpose}
@@ -223,7 +244,7 @@ export function RedteamInitApp({ directory, onComplete, onCancel }: RedteamInitA
     }
 
     // Plugin mode selection
-    if (state.matches('selectingPluginMode')) {
+    if (stateMatches('selectingPluginMode')) {
       return (
         <PluginModeStep
           onSelect={(mode: 'default' | 'manual') =>
@@ -237,7 +258,7 @@ export function RedteamInitApp({ directory, onComplete, onCancel }: RedteamInitA
     }
 
     // Plugin selection
-    if (state.matches('selectingPlugins')) {
+    if (stateMatches('selectingPlugins')) {
       return (
         <PluginStep
           selected={state.context.redteam.plugins}
@@ -253,7 +274,7 @@ export function RedteamInitApp({ directory, onComplete, onCancel }: RedteamInitA
     }
 
     // Strategy mode selection
-    if (state.matches('selectingStrategyMode')) {
+    if (stateMatches('selectingStrategyMode')) {
       return (
         <StrategyModeStep
           onSelect={(mode: 'default' | 'manual') =>
@@ -267,7 +288,7 @@ export function RedteamInitApp({ directory, onComplete, onCancel }: RedteamInitA
     }
 
     // Strategy selection
-    if (state.matches('selectingStrategies')) {
+    if (stateMatches('selectingStrategies')) {
       return (
         <StrategyStep
           selected={state.context.redteam.strategies}
@@ -285,7 +306,7 @@ export function RedteamInitApp({ directory, onComplete, onCancel }: RedteamInitA
     }
 
     // Preview
-    if (state.matches('previewing')) {
+    if (stateMatches('previewing')) {
       return (
         <PreviewStep
           files={state.context.filesToWrite}
@@ -300,12 +321,12 @@ export function RedteamInitApp({ directory, onComplete, onCancel }: RedteamInitA
     }
 
     // Writing
-    if (state.matches('writing')) {
+    if (stateMatches('writing')) {
       return <WritingStep files={state.context.filesToWrite} filesWritten={filesWritten} />;
     }
 
     // Complete
-    if (state.matches('complete')) {
+    if (stateMatches('complete')) {
       return (
         <CompleteStep
           directory={outputDirectory}
@@ -341,14 +362,14 @@ export function RedteamInitApp({ directory, onComplete, onCancel }: RedteamInitA
 
   // Auto-start the machine
   useEffect(() => {
-    if (state.matches('idle')) {
+    if (stateMatches('idle')) {
       send({ type: 'START' });
     }
-  }, [state, send]);
+  }, [send, stateMatches]);
 
   const stepInfo = getStepInfo();
   const showStepIndicator =
-    !state.matches('idle') && !state.matches('cancelled') && !state.matches('complete');
+    !stateMatches('idle') && !stateMatches('cancelled') && !stateMatches('complete');
 
   return (
     <Box flexDirection="column" padding={1}>

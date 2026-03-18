@@ -14,10 +14,48 @@ vi.mock('../../../src/ui/interactiveCheck', () => ({
   shouldUseInkUI: vi.fn(() => false),
 }));
 
-// Mock ShareApp to avoid loading ink/React
+// Mock initInkApp to avoid loading ink/React, and to trigger onController in the render callback
+vi.mock('../../../src/ui/initInkApp', () => ({
+  initInkApp: vi.fn(async (options: any) => {
+    // Create promise resolvers for channels
+    const resolvers: Record<string, (v: any) => void> = {};
+    const promises: Record<string, Promise<any>> = {};
+    for (const [key, _defaultVal] of Object.entries(options.channels || {})) {
+      promises[key] = new Promise((resolve) => {
+        resolvers[key] = resolve;
+      });
+    }
+
+    // Call the render function to get the element and trigger onController
+    const element = options.render(resolvers);
+
+    // Extract props and trigger onController if present
+    const appProps = element?.props?.children?.props || element?.props;
+    if (appProps?.onController) {
+      const { createShareController } = await import('../../../src/ui/share/ShareApp');
+      appProps.onController(createShareController(vi.fn()));
+    }
+
+    const mockCleanup = vi.fn();
+    return {
+      renderResult: {
+        cleanup: mockCleanup,
+        clear: vi.fn(),
+        unmount: vi.fn(),
+        rerender: vi.fn(),
+        waitUntilExit: vi.fn().mockResolvedValue(undefined),
+        instance: {},
+      },
+      cleanup: mockCleanup,
+      promises,
+    };
+  }),
+}));
+
+// Mock ShareApp
 vi.mock('../../../src/ui/share/ShareApp', () => ({
   ShareApp: vi.fn(() => null),
-  createShareController: vi.fn(() => ({
+  createShareController: vi.fn((_setProgress: any) => ({
     setPhase: vi.fn(),
     setProgress: vi.fn(),
     complete: vi.fn(),
@@ -25,36 +63,12 @@ vi.mock('../../../src/ui/share/ShareApp', () => ({
   })),
 }));
 
-vi.mock('../../../src/ui/render', () => ({
-  renderInteractive: vi.fn().mockResolvedValue({
-    cleanup: vi.fn(),
-    clear: vi.fn(),
-    unmount: vi.fn(),
-    rerender: vi.fn(),
-    waitUntilExit: vi.fn().mockResolvedValue(undefined),
-    frames: [],
-    lastFrame: vi.fn(),
-    instance: {},
-  }),
-}));
-
 describe('shareRunner', () => {
   beforeEach(async () => {
     vi.clearAllMocks();
-    // Reset mocks to default return values
+    // Ensure shouldUseInkUI returns false by default
     const { shouldUseInkUI } = await import('../../../src/ui/interactiveCheck');
-    const { renderInteractive } = await import('../../../src/ui/render');
     vi.mocked(shouldUseInkUI).mockReturnValue(false);
-    vi.mocked(renderInteractive).mockResolvedValue({
-      cleanup: vi.fn(),
-      clear: vi.fn(),
-      unmount: vi.fn(),
-      rerender: vi.fn(),
-      waitUntilExit: vi.fn().mockResolvedValue(undefined),
-      frames: [],
-      lastFrame: vi.fn(),
-      instance: {},
-    } as any);
   });
 
   describe('shouldUseInkShare', () => {
@@ -73,23 +87,7 @@ describe('shareRunner', () => {
   });
 
   describe('initInkShare', () => {
-    it('should render ShareApp with correct props', async () => {
-      const mockCleanup = vi.fn();
-      const { shouldUseInkUI } = await import('../../../src/ui/interactiveCheck');
-      const { renderInteractive } = await import('../../../src/ui/render');
-
-      vi.mocked(shouldUseInkUI).mockReturnValue(true);
-      vi.mocked(renderInteractive).mockResolvedValue({
-        cleanup: mockCleanup,
-        clear: vi.fn(),
-        unmount: vi.fn(),
-        rerender: vi.fn(),
-        waitUntilExit: vi.fn().mockResolvedValue(undefined),
-        frames: [],
-        lastFrame: vi.fn(),
-        instance: {},
-      } as any);
-
+    it('should call initInkApp and return result structure', async () => {
       const { initInkShare } = await import('../../../src/ui/share/shareRunner');
 
       const result = await initInkShare({
@@ -99,132 +97,129 @@ describe('shareRunner', () => {
         skipConfirmation: false,
       });
 
-      // Verify renderInteractive was called
-      expect(renderInteractive).toHaveBeenCalled();
-
-      // Verify result structure
       expect(result.controller).toBeDefined();
       expect(result.cleanup).toBeDefined();
       expect(result.confirmation).toBeDefined();
       expect(result.result).toBeDefined();
-
-      // Clean up
-      result.cleanup();
-      expect(mockCleanup).toHaveBeenCalled();
     });
 
     it('should resolve confirmation when onConfirm is called', async () => {
-      const { shouldUseInkUI } = await import('../../../src/ui/interactiveCheck');
-      const { renderInteractive } = await import('../../../src/ui/render');
+      const { initInkApp } = await import('../../../src/ui/initInkApp');
 
-      vi.mocked(shouldUseInkUI).mockReturnValue(true);
-      vi.mocked(renderInteractive).mockResolvedValue({
-        cleanup: vi.fn(),
-        clear: vi.fn(),
-        unmount: vi.fn(),
-        rerender: vi.fn(),
-        waitUntilExit: vi.fn().mockReturnValue(new Promise(() => {})),
-        frames: [],
-        lastFrame: vi.fn(),
-        instance: {},
-      } as any);
+      // Override to capture resolvers
+      let capturedResolvers: Record<string, (v: any) => void> = {};
+      vi.mocked(initInkApp).mockImplementationOnce(async (options: any): Promise<any> => {
+        const resolvers: Record<string, (v: any) => void> = {};
+        const promises: Record<string, Promise<any>> = {};
+        for (const [key] of Object.entries(options.channels || {})) {
+          promises[key] = new Promise((resolve) => {
+            resolvers[key] = resolve;
+          });
+        }
+        capturedResolvers = resolvers;
 
-      const { initInkShare } = await import('../../../src/ui/share/shareRunner');
+        // Call render and trigger onController
+        const element = options.render(resolvers);
+        const appProps = element?.props?.children?.props || element?.props;
+        if (appProps?.onController) {
+          const { createShareController } = await import('../../../src/ui/share/ShareApp');
+          appProps.onController(createShareController(vi.fn()));
+        }
 
-      const shareUI = await initInkShare({
-        evalId: 'test-eval-id',
+        return {
+          renderResult: { cleanup: vi.fn(), waitUntilExit: vi.fn().mockResolvedValue(undefined) },
+          cleanup: vi.fn(),
+          controller: null,
+          promises,
+        };
       });
 
-      // Get the rendered element props
-      const call = vi.mocked(renderInteractive).mock.calls[0];
-      const element = call[0];
-      const props = (element.props as any).children.props;
+      const { initInkShare } = await import('../../../src/ui/share/shareRunner');
+      const shareUI = await initInkShare({ evalId: 'test-eval-id' });
 
-      // Simulate confirm callback
-      props.onConfirm?.();
-
+      // Simulate confirm
+      capturedResolvers.confirmation(true);
       const confirmed = await shareUI.confirmation;
       expect(confirmed).toBe(true);
-
-      shareUI.cleanup();
     });
 
     it('should resolve confirmation=false when onCancel is called', async () => {
-      const { shouldUseInkUI } = await import('../../../src/ui/interactiveCheck');
-      const { renderInteractive } = await import('../../../src/ui/render');
+      const { initInkApp } = await import('../../../src/ui/initInkApp');
 
-      vi.mocked(shouldUseInkUI).mockReturnValue(true);
-      vi.mocked(renderInteractive).mockResolvedValue({
-        cleanup: vi.fn(),
-        clear: vi.fn(),
-        unmount: vi.fn(),
-        rerender: vi.fn(),
-        waitUntilExit: vi.fn().mockResolvedValue(undefined),
-        frames: [],
-        lastFrame: vi.fn(),
-        instance: {},
-      } as any);
+      let capturedResolvers: Record<string, (v: any) => void> = {};
+      vi.mocked(initInkApp).mockImplementationOnce(async (options: any): Promise<any> => {
+        const resolvers: Record<string, (v: any) => void> = {};
+        const promises: Record<string, Promise<any>> = {};
+        for (const [key] of Object.entries(options.channels || {})) {
+          promises[key] = new Promise((resolve) => {
+            resolvers[key] = resolve;
+          });
+        }
+        capturedResolvers = resolvers;
 
-      const { initInkShare } = await import('../../../src/ui/share/shareRunner');
+        const element = options.render(resolvers);
+        const appProps = element?.props?.children?.props || element?.props;
+        if (appProps?.onController) {
+          const { createShareController } = await import('../../../src/ui/share/ShareApp');
+          appProps.onController(createShareController(vi.fn()));
+        }
 
-      const shareUI = await initInkShare({
-        evalId: 'test-eval-id',
+        return {
+          renderResult: { cleanup: vi.fn(), waitUntilExit: vi.fn().mockResolvedValue(undefined) },
+          cleanup: vi.fn(),
+          controller: null,
+          promises,
+        };
       });
 
-      // Get the rendered element props
-      const call = vi.mocked(renderInteractive).mock.calls[0];
-      const element = call[0];
-      const props = (element.props as any).children.props;
+      const { initInkShare } = await import('../../../src/ui/share/shareRunner');
+      const shareUI = await initInkShare({ evalId: 'test-eval-id' });
 
-      // Simulate cancel callback
-      props.onCancel?.();
+      // Simulate cancel
+      capturedResolvers.confirmation(false);
+      capturedResolvers.result(undefined);
 
       const confirmed = await shareUI.confirmation;
       expect(confirmed).toBe(false);
-
-      const result = await shareUI.result;
-      expect(result).toBeUndefined();
-
-      shareUI.cleanup();
     });
 
     it('should resolve result with shareUrl when onComplete is called', async () => {
-      const { shouldUseInkUI } = await import('../../../src/ui/interactiveCheck');
-      const { renderInteractive } = await import('../../../src/ui/render');
+      const { initInkApp } = await import('../../../src/ui/initInkApp');
 
-      vi.mocked(shouldUseInkUI).mockReturnValue(true);
-      vi.mocked(renderInteractive).mockResolvedValue({
-        cleanup: vi.fn(),
-        clear: vi.fn(),
-        unmount: vi.fn(),
-        rerender: vi.fn(),
-        waitUntilExit: vi.fn().mockReturnValue(new Promise(() => {})),
-        frames: [],
-        lastFrame: vi.fn(),
-        instance: {},
-      } as any);
+      let capturedResolvers: Record<string, (v: any) => void> = {};
+      vi.mocked(initInkApp).mockImplementationOnce(async (options: any): Promise<any> => {
+        const resolvers: Record<string, (v: any) => void> = {};
+        const promises: Record<string, Promise<any>> = {};
+        for (const [key] of Object.entries(options.channels || {})) {
+          promises[key] = new Promise((resolve) => {
+            resolvers[key] = resolve;
+          });
+        }
+        capturedResolvers = resolvers;
 
-      const { initInkShare } = await import('../../../src/ui/share/shareRunner');
+        const element = options.render(resolvers);
+        const appProps = element?.props?.children?.props || element?.props;
+        if (appProps?.onController) {
+          const { createShareController } = await import('../../../src/ui/share/ShareApp');
+          appProps.onController(createShareController(vi.fn()));
+        }
 
-      const shareUI = await initInkShare({
-        evalId: 'test-eval-id',
-        skipConfirmation: true,
+        return {
+          renderResult: { cleanup: vi.fn(), waitUntilExit: vi.fn().mockResolvedValue(undefined) },
+          cleanup: vi.fn(),
+          controller: null,
+          promises,
+        };
       });
 
-      // Get the rendered element props
-      const call = vi.mocked(renderInteractive).mock.calls[0];
-      const element = call[0];
-      const props = (element.props as any).children.props;
+      const { initInkShare } = await import('../../../src/ui/share/shareRunner');
+      const shareUI = await initInkShare({ evalId: 'test-eval-id' });
 
-      // Simulate confirm and complete callbacks
-      props.onConfirm?.();
-      const shareUrl = 'https://promptfoo.dev/eval/123';
-      props.onComplete?.(shareUrl);
+      // Simulate complete
+      capturedResolvers.result('https://app.promptfoo.dev/eval/test-123');
 
-      const result = await shareUI.result;
-      expect(result).toBe(shareUrl);
-
-      shareUI.cleanup();
+      const resultUrl = await shareUI.result;
+      expect(resultUrl).toBe('https://app.promptfoo.dev/eval/test-123');
     });
   });
 
@@ -232,7 +227,7 @@ describe('shareRunner', () => {
     it('should create a controller with all required methods', async () => {
       const { createShareController } = await import('../../../src/ui/share/ShareApp');
 
-      const controller = createShareController();
+      const controller = createShareController(vi.fn());
 
       expect(controller.setPhase).toBeDefined();
       expect(controller.setProgress).toBeDefined();

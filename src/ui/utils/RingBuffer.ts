@@ -18,6 +18,8 @@ export class RingBuffer<T> {
   private head = 0; // Next write position
   private count = 0; // Number of items in buffer
   private readonly maxSize: number;
+  /** Monotonically increasing version counter — incremented on every mutation. */
+  version = 0;
 
   /**
    * Create a new ring buffer with the specified capacity.
@@ -45,6 +47,7 @@ export class RingBuffer<T> {
     if (this.count < this.maxSize) {
       this.count++;
     }
+    this.version++;
   }
 
   /**

@@ -546,14 +546,18 @@ export function EvalProvider({ children }: EvalProviderProps) {
 
   const complete = useCallback(
     (summary?: { passed: number; failed: number; errors: number }) => {
+      // Read current values from machine context directly to avoid
+      // stale closure issues and unnecessary re-renders from including
+      // passedTests/failedTests/errorCount in the dependency array.
+      const ctx = machineState.context;
       send({
         type: 'COMPLETE',
-        passed: summary?.passed ?? state.passedTests,
-        failed: summary?.failed ?? state.failedTests,
-        errors: summary?.errors ?? state.errorCount,
+        passed: summary?.passed ?? ctx.passedTests,
+        failed: summary?.failed ?? ctx.failedTests,
+        errors: summary?.errors ?? ctx.errorCount,
       });
     },
-    [send, state.passedTests, state.failedTests, state.errorCount],
+    [send, machineState.context],
   );
 
   // Computed values

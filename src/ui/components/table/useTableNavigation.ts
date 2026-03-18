@@ -427,14 +427,12 @@ export function navigationReducer(
       };
 
     case 'CLEAR_COLUMN_FILTERS':
+      // Clear ALL filters: column filters, filter mode, and search query
       return {
         ...state,
         selectedRow: 0,
         scrollOffset: 0,
-        filter: {
-          ...state.filter,
-          columnFilters: [],
-        },
+        filter: DEFAULT_FILTER_STATE,
       };
 
     case 'CLAMP_SELECTION': {

@@ -5,6 +5,7 @@
  * and the React state management in the Ink UI.
  */
 
+import { TokenUsageTracker } from '../util/tokenUsage';
 import { TIMING } from './constants';
 
 import type { EvaluateTable, PromptMetrics, RunEvalOptions } from '../types/index';
@@ -403,9 +404,24 @@ export function createEvalUIController(dispatch: React.Dispatch<EvalAction>): Ev
 
 /**
  * Extract provider IDs from evaluate options and test suite.
+ * Also registers the label map on TokenUsageTracker so the UI hook
+ * can resolve labeled providers to machine keys.
  */
 export function extractProviderIds(
   providers: Array<{ id: () => string; label?: string }>,
 ): string[] {
-  return providers.map((p) => p.label || p.id());
+  // Build and register label map for token metrics resolution
+  const labelMap = new Map<string, string>();
+  const keys: string[] = [];
+  for (const p of providers) {
+    const rawId = p.id();
+    const machineKey = p.label || rawId;
+    labelMap.set(rawId, machineKey);
+    keys.push(machineKey);
+  }
+
+  // Register label map so useTokenMetrics can resolve labeled providers
+  TokenUsageTracker.getInstance().setLabelMap(labelMap);
+
+  return keys;
 }

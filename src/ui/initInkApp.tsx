@@ -25,8 +25,8 @@ export interface InitInkAppOptions<TController> {
   componentName: string;
   /** Build the React element tree. Receives resolve functions for each promise channel. */
   render: (resolvers: Record<string, (value: unknown) => void>) => ReactElement;
-  /** The controller instance to return */
-  controller: TController;
+  /** The controller instance to return (optional when using onController callback pattern) */
+  controller?: TController;
   /** Promise channel definitions: name → fallback value for signal/error */
   channels: Record<string, unknown>;
   /** Log context for signal messages */
@@ -36,8 +36,8 @@ export interface InitInkAppOptions<TController> {
 export interface InitInkAppResult<TController> {
   /** The Ink render result */
   renderResult: RenderResult;
-  /** The controller for sending updates */
-  controller: TController;
+  /** The controller for sending updates (may be undefined if using onController callback) */
+  controller: TController | undefined;
   /** Cleanup function */
   cleanup: () => void;
   /** Promise channels, raced against waitUntilExit */

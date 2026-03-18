@@ -46,7 +46,7 @@ export function isInteractiveUIEnabled(): boolean {
  * of other checks (except TTY, which Ink physically requires).
  */
 export function isInteractiveUIForced(): boolean {
-  return process.env.PROMPTFOO_FORCE_INTERACTIVE_UI === 'true';
+  return getEnvBool('PROMPTFOO_FORCE_INTERACTIVE_UI');
 }
 
 /**
@@ -108,7 +108,7 @@ export const shouldUseInteractiveUI = shouldUseInkUI;
 export function shouldUseInkInitUI(): boolean {
   // Force enable overrides everything (useful for testing in CI)
   // Still requires TTY — Ink physically cannot render without one
-  if (process.env.PROMPTFOO_FORCE_INTERACTIVE_INIT === 'true') {
+  if (getEnvBool('PROMPTFOO_FORCE_INTERACTIVE_INIT')) {
     if (!canUseInteractiveUI()) {
       logger.debug(
         'Ink init force-enabled but TTY not available — falling back to non-interactive',

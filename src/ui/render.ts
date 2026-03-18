@@ -101,8 +101,8 @@ export async function renderInteractive(
       isCleanedUp = true;
       instance.unmount();
       process.removeListener('SIGTERM', handleSigterm);
+      onSignal?.('SIGINT');
     }
-    onSignal?.('SIGINT');
     process.exitCode = EXIT_CODES.SIGINT;
 
     // Register force-quit handler for double Ctrl+C (emergency escape).
@@ -118,8 +118,8 @@ export async function renderInteractive(
       isCleanedUp = true;
       instance.unmount();
       process.removeListener('SIGINT', handleSigint);
+      onSignal?.('SIGTERM');
     }
-    onSignal?.('SIGTERM');
     process.exitCode = EXIT_CODES.SIGTERM;
   };
 

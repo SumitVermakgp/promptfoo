@@ -640,6 +640,8 @@ export const evalMachine = setup({
       if (event.type !== 'ADD_ERROR') {
         return {};
       }
+      // Clone is required for XState referential equality checks.
+      // O(capacity) where capacity=5 — negligible.
       const errors = context.errors.clone();
       errors.push({
         ...event.error,
@@ -652,6 +654,8 @@ export const evalMachine = setup({
       if (event.type !== 'ADD_LOG') {
         return {};
       }
+      // Clone is required for XState referential equality checks.
+      // O(capacity) where capacity=100 — acceptable for log frequency.
       const logs = context.logs.clone();
       logs.push(event.entry);
       return { logs };
@@ -836,7 +840,23 @@ export const evalMachine = setup({
     },
 
     results: {
-      type: 'final',
+      on: {
+        SHARING_STARTED: {
+          actions: assign({ sharingStatus: 'sharing' as const }),
+        },
+        SHARING_COMPLETED: {
+          actions: [assign({ sharingStatus: 'completed' as const }), 'setShareUrl'],
+        },
+        SHARING_FAILED: {
+          actions: assign({ sharingStatus: 'failed' as const }),
+        },
+        TOGGLE_VERBOSE: {
+          actions: 'toggleVerbose',
+        },
+        TOGGLE_ERROR_DETAILS: {
+          actions: 'toggleErrorDetails',
+        },
+      },
     },
 
     error: {

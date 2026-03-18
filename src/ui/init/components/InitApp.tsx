@@ -65,6 +65,31 @@ export function InitApp({ onComplete, onCancel }: InitAppProps) {
   const { exit } = useApp();
   const [state, send] = useMachine(initMachine);
 
+  // Helper: XState v5's setup() generates strict match types that don't accept
+  // dotted strings for nested states. This helper checks dotted paths against
+  // the state value object tree.
+  const stateMatches = useCallback(
+    (path: string): boolean => {
+      const parts = path.split('.');
+      let current: string | Record<string, unknown> = state.value as
+        | string
+        | Record<string, unknown>;
+      for (let i = 0; i < parts.length; i++) {
+        const part = parts[i];
+        if (typeof current === 'string') {
+          return current === part && i === parts.length - 1;
+        }
+        if (typeof current === 'object' && current !== null && part in current) {
+          current = current[part] as string | Record<string, unknown>;
+        } else {
+          return false;
+        }
+      }
+      return true;
+    },
+    [state.value],
+  );
+
   // Local state for async operations
   const [examplesLoading, setExamplesLoading] = useState(false);
   const [examplesError, setExamplesError] = useState<string | null>(null);
@@ -92,26 +117,26 @@ export function InitApp({ onComplete, onCancel }: InitAppProps) {
   // Handle machine state changes
   useEffect(() => {
     // Handle final states
-    if (state.matches('cancelled')) {
+    if (stateMatches('cancelled')) {
       onCancel?.();
       exit();
     }
 
     if (
-      state.matches('project.complete') ||
-      state.matches('example.complete') ||
-      state.matches('redteam.complete')
+      stateMatches('project.complete') ||
+      stateMatches('example.complete') ||
+      stateMatches('redteam.complete')
     ) {
       onComplete?.({
         directory: state.context.outputDirectory,
         filesWritten: state.context.filesWritten,
       });
     }
-  }, [state, exit, onComplete, onCancel]);
+  }, [state, exit, onComplete, onCancel, stateMatches]);
 
   // Load examples when entering example selection
   useEffect(() => {
-    if (state.matches('example.selecting') && exampleList.length === 0 && !examplesLoading) {
+    if (stateMatches('example.selecting') && exampleList.length === 0 && !examplesLoading) {
       setExamplesLoading(true);
       setExamplesError(null);
 
@@ -125,7 +150,7 @@ export function InitApp({ onComplete, onCancel }: InitAppProps) {
           setExamplesLoading(false);
         });
     }
-  }, [state, exampleList.length, examplesLoading]);
+  }, [exampleList.length, examplesLoading, stateMatches]);
 
   // Handle example download
   const handleDownloadExample = useCallback(
@@ -159,10 +184,10 @@ export function InitApp({ onComplete, onCancel }: InitAppProps) {
 
   // Generate preview files when entering redteam preview state
   useEffect(() => {
-    if (state.matches('redteam.previewing') && state.context.filesToWrite.length === 0) {
+    if (stateMatches('redteam.previewing') && state.context.filesToWrite.length === 0) {
       void handleGeneratePreview();
     }
-  }, [state, handleGeneratePreview]);
+  }, [state, handleGeneratePreview, stateMatches]);
 
   // Handle file writing
   const handleWriteFiles = useCallback(async () => {
@@ -194,19 +219,19 @@ export function InitApp({ onComplete, onCancel }: InitAppProps) {
 
   // Get current step info for the step indicator
   const getStepInfo = (): { steps: StepInfo[]; currentIndex: number } => {
-    if (state.matches('example')) {
+    if (stateMatches('example')) {
       const exampleSteps: StepInfo[] = [
         { id: 'example', label: 'Select example', shortLabel: 'Example' },
         { id: 'download', label: 'Download', shortLabel: 'Download' },
       ];
       return {
         steps: exampleSteps,
-        currentIndex: state.matches('example.selecting') ? 0 : 1,
+        currentIndex: stateMatches('example.selecting') ? 0 : 1,
       };
     }
 
     // Redteam flow steps
-    if (state.context.useCase === 'redteam' || state.matches('redteam')) {
+    if (state.context.useCase === 'redteam' || stateMatches('redteam')) {
       const redteamSteps: StepInfo[] = [
         { id: 'target', label: 'Target Name', shortLabel: 'Target' },
         { id: 'targetType', label: 'Target Type', shortLabel: 'Type' },
@@ -218,26 +243,26 @@ export function InitApp({ onComplete, onCancel }: InitAppProps) {
 
       let currentIndex = 0;
 
-      if (state.matches('redteam.enteringLabel')) {
+      if (stateMatches('redteam.enteringLabel')) {
         currentIndex = 0;
-      } else if (state.matches('redteam.selectingTargetType')) {
+      } else if (stateMatches('redteam.selectingTargetType')) {
         currentIndex = 1;
-      } else if (state.matches('redteam.enteringPurpose')) {
+      } else if (stateMatches('redteam.enteringPurpose')) {
         currentIndex = 2;
       } else if (
-        state.matches('redteam.selectingPluginMode') ||
-        state.matches('redteam.selectingPlugins')
+        stateMatches('redteam.selectingPluginMode') ||
+        stateMatches('redteam.selectingPlugins')
       ) {
         currentIndex = 3;
       } else if (
-        state.matches('redteam.selectingStrategyMode') ||
-        state.matches('redteam.selectingStrategies')
+        stateMatches('redteam.selectingStrategyMode') ||
+        stateMatches('redteam.selectingStrategies')
       ) {
         currentIndex = 4;
       } else if (
-        state.matches('redteam.previewing') ||
-        state.matches('redteam.writing') ||
-        state.matches('redteam.complete')
+        stateMatches('redteam.previewing') ||
+        stateMatches('redteam.writing') ||
+        stateMatches('redteam.complete')
       ) {
         currentIndex = 5;
       }
@@ -265,15 +290,15 @@ export function InitApp({ onComplete, onCancel }: InitAppProps) {
 
     let currentIndex = 0;
 
-    if (state.matches('project.selectingUseCase')) {
+    if (stateMatches('project.selectingUseCase')) {
       currentIndex = 0;
-    } else if (state.matches('project.selectingLanguage')) {
+    } else if (stateMatches('project.selectingLanguage')) {
       currentIndex = 1;
-    } else if (state.matches('project.selectingProviders')) {
+    } else if (stateMatches('project.selectingProviders')) {
       currentIndex = needsLanguage ? 2 : 1;
-    } else if (state.matches('project.previewing')) {
+    } else if (stateMatches('project.previewing')) {
       currentIndex = needsLanguage ? 3 : 2;
-    } else if (state.matches('project.writing') || state.matches('project.complete')) {
+    } else if (stateMatches('project.writing') || stateMatches('project.complete')) {
       currentIndex = needsLanguage ? 4 : 3;
     }
 
@@ -286,7 +311,7 @@ export function InitApp({ onComplete, onCancel }: InitAppProps) {
   // Render the appropriate step based on machine state
   const renderStep = () => {
     // Path selection
-    if (state.matches('selectingPath')) {
+    if (stateMatches('selectingPath')) {
       return (
         <PathStep
           onSelect={(path: InitPath) => send({ type: 'SELECT_PATH', path })}
@@ -297,7 +322,7 @@ export function InitApp({ onComplete, onCancel }: InitAppProps) {
     }
 
     // Example flow
-    if (state.matches('example.selecting')) {
+    if (stateMatches('example.selecting')) {
       return (
         <ExampleStep
           examples={exampleList}
@@ -324,7 +349,7 @@ export function InitApp({ onComplete, onCancel }: InitAppProps) {
       );
     }
 
-    if (state.matches('example.downloading') && downloadProgress) {
+    if (stateMatches('example.downloading') && downloadProgress) {
       return (
         <DownloadProgressComponent
           exampleName={state.context.exampleName || ''}
@@ -334,7 +359,7 @@ export function InitApp({ onComplete, onCancel }: InitAppProps) {
       );
     }
 
-    if (state.matches('example.complete')) {
+    if (stateMatches('example.complete')) {
       return (
         <DownloadCompleteComponent
           exampleName={state.context.exampleName || ''}
@@ -345,7 +370,7 @@ export function InitApp({ onComplete, onCancel }: InitAppProps) {
     }
 
     // Project flow - Use case selection
-    if (state.matches('project.selectingUseCase')) {
+    if (stateMatches('project.selectingUseCase')) {
       return (
         <UseCaseStep
           onSelect={(useCase: UseCase) => send({ type: 'SELECT_USECASE', useCase })}
@@ -357,7 +382,7 @@ export function InitApp({ onComplete, onCancel }: InitAppProps) {
     }
 
     // Project flow - Language selection
-    if (state.matches('project.selectingLanguage')) {
+    if (stateMatches('project.selectingLanguage')) {
       return (
         <LanguageStep
           onSelect={(language: Language) => send({ type: 'SELECT_LANGUAGE', language })}
@@ -369,7 +394,7 @@ export function InitApp({ onComplete, onCancel }: InitAppProps) {
     }
 
     // Project flow - Provider selection
-    if (state.matches('project.selectingProviders')) {
+    if (stateMatches('project.selectingProviders')) {
       return (
         <ProviderStep
           selected={state.context.providers}
@@ -386,7 +411,7 @@ export function InitApp({ onComplete, onCancel }: InitAppProps) {
     }
 
     // Project flow - Preview
-    if (state.matches('project.previewing')) {
+    if (stateMatches('project.previewing')) {
       return (
         <PreviewStep
           files={state.context.filesToWrite}
@@ -401,12 +426,12 @@ export function InitApp({ onComplete, onCancel }: InitAppProps) {
     }
 
     // Project flow - Writing
-    if (state.matches('project.writing')) {
+    if (stateMatches('project.writing')) {
       return <WritingStep files={state.context.filesToWrite} filesWritten={filesWritten} />;
     }
 
     // Project flow - Complete
-    if (state.matches('project.complete')) {
+    if (stateMatches('project.complete')) {
       return (
         <CompleteStep
           directory={state.context.outputDirectory}
@@ -417,7 +442,7 @@ export function InitApp({ onComplete, onCancel }: InitAppProps) {
     }
 
     // Redteam flow - Target label entry
-    if (state.matches('redteam.enteringLabel')) {
+    if (stateMatches('redteam.enteringLabel')) {
       return (
         <TargetLabelStep
           value={state.context.redteam.targetLabel}
@@ -431,7 +456,7 @@ export function InitApp({ onComplete, onCancel }: InitAppProps) {
     }
 
     // Redteam flow - Target type selection
-    if (state.matches('redteam.selectingTargetType')) {
+    if (stateMatches('redteam.selectingTargetType')) {
       return (
         <TargetTypeStep
           onSelect={(targetType: RedteamTargetType) =>
@@ -445,7 +470,7 @@ export function InitApp({ onComplete, onCancel }: InitAppProps) {
     }
 
     // Redteam flow - Purpose entry
-    if (state.matches('redteam.enteringPurpose')) {
+    if (stateMatches('redteam.enteringPurpose')) {
       return (
         <PurposeStep
           value={state.context.redteam.purpose}
@@ -459,7 +484,7 @@ export function InitApp({ onComplete, onCancel }: InitAppProps) {
     }
 
     // Redteam flow - Plugin mode selection
-    if (state.matches('redteam.selectingPluginMode')) {
+    if (stateMatches('redteam.selectingPluginMode')) {
       return (
         <PluginModeStep
           onSelect={(mode: 'default' | 'manual') =>
@@ -473,7 +498,7 @@ export function InitApp({ onComplete, onCancel }: InitAppProps) {
     }
 
     // Redteam flow - Plugin selection
-    if (state.matches('redteam.selectingPlugins')) {
+    if (stateMatches('redteam.selectingPlugins')) {
       return (
         <PluginStep
           selected={state.context.redteam.plugins}
@@ -489,7 +514,7 @@ export function InitApp({ onComplete, onCancel }: InitAppProps) {
     }
 
     // Redteam flow - Strategy mode selection
-    if (state.matches('redteam.selectingStrategyMode')) {
+    if (stateMatches('redteam.selectingStrategyMode')) {
       return (
         <StrategyModeStep
           onSelect={(mode: 'default' | 'manual') =>
@@ -503,7 +528,7 @@ export function InitApp({ onComplete, onCancel }: InitAppProps) {
     }
 
     // Redteam flow - Strategy selection
-    if (state.matches('redteam.selectingStrategies')) {
+    if (stateMatches('redteam.selectingStrategies')) {
       return (
         <StrategyStep
           selected={state.context.redteam.strategies}
@@ -521,7 +546,7 @@ export function InitApp({ onComplete, onCancel }: InitAppProps) {
     }
 
     // Redteam flow - Preview
-    if (state.matches('redteam.previewing')) {
+    if (stateMatches('redteam.previewing')) {
       return (
         <PreviewStep
           files={state.context.filesToWrite}
@@ -536,12 +561,12 @@ export function InitApp({ onComplete, onCancel }: InitAppProps) {
     }
 
     // Redteam flow - Writing
-    if (state.matches('redteam.writing')) {
+    if (stateMatches('redteam.writing')) {
       return <WritingStep files={state.context.filesToWrite} filesWritten={filesWritten} />;
     }
 
     // Redteam flow - Complete
-    if (state.matches('redteam.complete')) {
+    if (stateMatches('redteam.complete')) {
       return (
         <CompleteStep
           directory={state.context.outputDirectory}
@@ -576,19 +601,19 @@ export function InitApp({ onComplete, onCancel }: InitAppProps) {
 
   // Auto-start the machine
   useEffect(() => {
-    if (state.matches('idle')) {
+    if (stateMatches('idle')) {
       send({ type: 'START' });
     }
-  }, [state, send]);
+  }, [send, stateMatches]);
 
   const stepInfo = getStepInfo();
   const showStepIndicator =
-    !state.matches('idle') &&
-    !state.matches('selectingPath') &&
-    !state.matches('cancelled') &&
-    !state.matches('project.complete') &&
-    !state.matches('example.complete') &&
-    !state.matches('redteam.complete');
+    !stateMatches('idle') &&
+    !stateMatches('selectingPath') &&
+    !stateMatches('cancelled') &&
+    !stateMatches('project.complete') &&
+    !stateMatches('example.complete') &&
+    !stateMatches('redteam.complete');
 
   return (
     <Box flexDirection="column" padding={1}>

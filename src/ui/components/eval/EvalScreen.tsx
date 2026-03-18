@@ -461,6 +461,7 @@ export function EvalScreen({
   const inResultsPhase = state.sessionPhase === 'results';
 
   // Poll TokenUsageTracker for real-time token metrics
+  // Label resolution is handled by the tracker's label map (set by evalBridge.extractProviderIds)
   useTokenMetrics(dispatch, isRunning);
 
   // Consolidated keyboard input handler using Ink's useInput internally

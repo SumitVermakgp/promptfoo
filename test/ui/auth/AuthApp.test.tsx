@@ -1,6 +1,22 @@
 import { render } from 'ink-testing-library';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { AuthApp, createAuthController } from '../../../src/ui/auth/AuthApp';
+import { AuthApp, type AuthController, createAuthController } from '../../../src/ui/auth/AuthApp';
+
+/** Helper: render AuthApp and capture the controller via onController callback */
+function renderWithController(props: React.ComponentProps<typeof AuthApp> = {}) {
+  let controller: AuthController | null = null;
+  const result = render(
+    <AuthApp
+      {...props}
+      onController={(c) => {
+        controller = c;
+        props.onController?.(c);
+      }}
+    />,
+  );
+  // Controller is delivered synchronously via useEffect on first render in Ink
+  return { ...result, controller: controller! };
+}
 
 describe('AuthApp', () => {
   beforeEach(() => {
@@ -8,8 +24,7 @@ describe('AuthApp', () => {
   });
 
   afterEach(() => {
-    // Clean up global state
-    delete (globalThis as any).__authSetProgress;
+    vi.restoreAllMocks();
   });
 
   describe('rendering', () => {
@@ -29,7 +44,8 @@ describe('AuthApp', () => {
 
   describe('createAuthController', () => {
     it('should create a controller with all methods', () => {
-      const controller = createAuthController();
+      const mockSetProgress = vi.fn();
+      const controller = createAuthController(mockSetProgress);
 
       expect(typeof controller.setPhase).toBe('function');
       expect(typeof controller.setStatusMessage).toBe('function');
@@ -39,8 +55,7 @@ describe('AuthApp', () => {
     });
 
     it('should update phase through controller when AuthApp is mounted', () => {
-      const { lastFrame } = render(<AuthApp initialPhase="idle" />);
-      const controller = createAuthController();
+      const { lastFrame, controller } = renderWithController({ initialPhase: 'idle' });
 
       // Move to logging_in phase
       controller.setPhase('logging_in');
@@ -51,8 +66,7 @@ describe('AuthApp', () => {
     });
 
     it('should show success state when complete is called', async () => {
-      const { lastFrame } = render(<AuthApp initialPhase="logging_in" />);
-      const controller = createAuthController();
+      const { lastFrame, controller } = renderWithController({ initialPhase: 'logging_in' });
 
       controller.complete({
         email: 'test@example.com',
@@ -72,8 +86,7 @@ describe('AuthApp', () => {
     });
 
     it('should show error state when error is called', async () => {
-      const { lastFrame } = render(<AuthApp initialPhase="logging_in" />);
-      const controller = createAuthController();
+      const { lastFrame, controller } = renderWithController({ initialPhase: 'logging_in' });
 
       controller.error('Invalid API key');
 
@@ -86,8 +99,7 @@ describe('AuthApp', () => {
     });
 
     it('should show team selector when showTeamSelector is called', async () => {
-      const { lastFrame } = render(<AuthApp initialPhase="logging_in" />);
-      const controller = createAuthController();
+      const { lastFrame, controller } = renderWithController({ initialPhase: 'logging_in' });
 
       controller.showTeamSelector([
         { id: '1', name: 'Team One', slug: 'team-one' },
@@ -109,12 +121,13 @@ describe('AuthApp', () => {
       const onComplete = vi.fn();
       const onExit = vi.fn();
 
-      const { stdin } = render(
-        <AuthApp initialPhase="logging_in" onComplete={onComplete} onExit={onExit} />,
-      );
+      const { stdin, controller } = renderWithController({
+        initialPhase: 'logging_in',
+        onComplete,
+        onExit,
+      });
 
       // Set up success state
-      const controller = createAuthController();
       controller.complete({
         email: 'test@example.com',
         organization: 'Test Org',
@@ -140,10 +153,12 @@ describe('AuthApp', () => {
     it('should call onTeamSelect when team is selected', async () => {
       const onTeamSelect = vi.fn();
 
-      const { stdin } = render(<AuthApp initialPhase="logging_in" onTeamSelect={onTeamSelect} />);
+      const { stdin, controller } = renderWithController({
+        initialPhase: 'logging_in',
+        onTeamSelect,
+      });
 
       // Show team selector
-      const controller = createAuthController();
       controller.showTeamSelector([
         { id: '1', name: 'Team One', slug: 'team-one' },
         { id: '2', name: 'Team Two', slug: 'team-two' },

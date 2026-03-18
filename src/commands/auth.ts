@@ -24,7 +24,7 @@ import type { Command } from 'commander';
 interface LoginResult {
   user: { email: string };
   organization: { id: string; name: string };
-  allTeams: Array<{ id: string; name: string; slug: string }>;
+  allTeams: Awaited<ReturnType<typeof getUserTeams>>;
   selectedTeam?: { id: string; name: string };
 }
 
@@ -43,9 +43,17 @@ async function performApiKeyLogin(
   setUserEmail(user.email);
   cloudConfig.setCurrentOrganization(organization.id);
 
-  // Load and cache teams
-  const allTeams = await getUserTeams();
-  cloudConfig.cacheTeams(allTeams, organization.id);
+  // Load and cache teams — failure is non-fatal (login itself succeeded)
+  let allTeams: LoginResult['allTeams'] = [];
+  try {
+    allTeams = await getUserTeams();
+    cloudConfig.cacheTeams(allTeams, organization.id);
+  } catch (teamError) {
+    logger.warn(
+      `Logged in successfully, but could not load teams: ${teamError instanceof Error ? teamError.message : String(teamError)}`,
+    );
+    return { user, organization, allTeams, selectedTeam: undefined };
+  }
 
   let selectedTeam: LoginResult['selectedTeam'];
 
@@ -230,8 +238,8 @@ export function authCommand(program: Command) {
             const authUrl = new URL(appUrl);
             const welcomeUrl = new URL('/welcome', appUrl);
 
-            if (isNonInteractive() || cmdObj.interactive === false) {
-              // CI Environment or --no-interactive flag: Exit with error but show manual URLs
+            if (isNonInteractive()) {
+              // CI/non-TTY environment: cannot open a browser or prompt
               logger.error(
                 'Authentication required. Please set PROMPTFOO_API_KEY environment variable or run `promptfoo auth login` in an interactive environment.',
               );
@@ -243,7 +251,7 @@ export function authCommand(program: Command) {
               return;
             }
 
-            // Interactive Environment: Offer to open browser
+            // Interactive TTY: open browser for login (--no-interactive only disables Ink UI, not browser flow)
             await openAuthBrowser(authUrl.toString(), welcomeUrl.toString(), BrowserBehavior.ASK);
             return;
           }
@@ -422,10 +430,10 @@ export function authCommand(program: Command) {
           logger.info(`Current team: ${chalk.green(team.name)}`);
         } catch (_error) {
           logger.warn('Stored team is no longer accessible, falling back to default');
-          const teams = await getUserTeams();
-          if (teams.length > 0) {
-            logger.info(`Current team: ${chalk.green(teams[0].name)} ${chalk.dim('(default)')}`);
-          } else {
+          try {
+            const defaultTeam = await getDefaultTeam();
+            logger.info(`Current team: ${chalk.green(defaultTeam.name)} ${chalk.dim('(default)')}`);
+          } catch {
             logger.error('No teams available');
           }
         }

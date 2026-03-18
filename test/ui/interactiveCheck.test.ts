@@ -8,6 +8,15 @@ vi.mock('../../src/envars', async (importOriginal) => {
       if (key === 'PROMPTFOO_ENABLE_INTERACTIVE_UI') {
         return process.env.PROMPTFOO_ENABLE_INTERACTIVE_UI === 'true';
       }
+      if (key === 'PROMPTFOO_FORCE_INTERACTIVE_UI') {
+        return process.env.PROMPTFOO_FORCE_INTERACTIVE_UI === 'true';
+      }
+      if (key === 'PROMPTFOO_FORCE_INTERACTIVE_INIT') {
+        return process.env.PROMPTFOO_FORCE_INTERACTIVE_INIT === 'true';
+      }
+      if (key === 'PROMPTFOO_DISABLE_INTERACTIVE_UI') {
+        return process.env.PROMPTFOO_DISABLE_INTERACTIVE_UI === 'true';
+      }
       return false;
     }),
   };

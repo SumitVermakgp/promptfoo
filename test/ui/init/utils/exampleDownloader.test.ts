@@ -5,6 +5,7 @@ import {
   downloadExample,
   fetchExampleList,
   getExampleDescription,
+  resetTreeCache,
 } from '../../../../src/ui/init/utils/exampleDownloader';
 import { fetchWithProxy } from '../../../../src/util/fetch';
 
@@ -19,27 +20,40 @@ vi.mock('../../../../src/util/fetch', () => ({
   fetchWithProxy: vi.fn(),
 }));
 
+vi.mock('../../../../src/constants', () => ({
+  VERSION: '0.100.0',
+}));
+
+/** Helper: create a mock Git tree response */
+function mockTreeResponse(files: Array<{ path: string; type: string }>) {
+  return {
+    ok: true,
+    json: vi.fn().mockResolvedValue({ tree: files }),
+  } as unknown as Response;
+}
+
 describe('fetchExampleList', () => {
   beforeEach(() => {
     vi.resetAllMocks();
+    resetTreeCache();
   });
 
-  it('should fetch and return list of example directories', async () => {
-    const mockResponse = {
-      ok: true,
-      json: vi.fn().mockResolvedValue([
-        { name: 'openai-chat', type: 'dir' },
-        { name: 'anthropic', type: 'dir' },
-        { name: 'README.md', type: 'file' },
+  it('should fetch and return list of runnable example directories', async () => {
+    // Tree API returns files — only examples with promptfooconfig.* should be listed
+    vi.mocked(fetchWithProxy).mockResolvedValue(
+      mockTreeResponse([
+        { path: 'examples/openai-chat/promptfooconfig.yaml', type: 'blob' },
+        { path: 'examples/openai-chat/README.md', type: 'blob' },
+        { path: 'examples/anthropic/promptfooconfig.yaml', type: 'blob' },
+        { path: 'examples/non-runnable/README.md', type: 'blob' },
       ]),
-    };
-    vi.mocked(fetchWithProxy).mockResolvedValue(mockResponse as unknown as Response);
+    );
 
     const result = await fetchExampleList();
 
     expect(result).toEqual(['anthropic', 'openai-chat']);
     expect(fetchWithProxy).toHaveBeenCalledWith(
-      expect.stringContaining('/contents/examples'),
+      expect.stringContaining('/git/trees/0.100.0'),
       expect.objectContaining({
         headers: expect.objectContaining({
           Accept: 'application/vnd.github.v3+json',
@@ -48,43 +62,54 @@ describe('fetchExampleList', () => {
     );
   });
 
-  it('should throw error when fetch fails', async () => {
-    const mockResponse = {
+  it('should throw error when all refs fail', async () => {
+    vi.mocked(fetchWithProxy).mockResolvedValue({
       ok: false,
       statusText: 'Not Found',
-    };
-    vi.mocked(fetchWithProxy).mockResolvedValue(mockResponse as unknown as Response);
+    } as unknown as Response);
 
-    await expect(fetchExampleList()).rejects.toThrow('Failed to fetch examples');
+    await expect(fetchExampleList()).rejects.toThrow('Failed to fetch repository tree');
   });
 
-  it('should filter out non-directory items', async () => {
-    const mockResponse = {
-      ok: true,
-      json: vi.fn().mockResolvedValue([
-        { name: 'example1', type: 'dir' },
-        { name: 'file.txt', type: 'file' },
-        { name: 'example2', type: 'dir' },
-        { name: 'another.md', type: 'file' },
-      ]),
-    };
-    vi.mocked(fetchWithProxy).mockResolvedValue(mockResponse as unknown as Response);
+  it('should fall back to main when version ref fails', async () => {
+    vi.mocked(fetchWithProxy)
+      .mockResolvedValueOnce({ ok: false, statusText: 'Not Found' } as unknown as Response)
+      .mockResolvedValueOnce(
+        mockTreeResponse([{ path: 'examples/example1/promptfooconfig.yaml', type: 'blob' }]),
+      );
 
     const result = await fetchExampleList();
 
-    expect(result).toEqual(['example1', 'example2']);
+    expect(result).toEqual(['example1']);
+    // Second call should be to main
+    expect(fetchWithProxy).toHaveBeenCalledTimes(2);
+    expect(String(vi.mocked(fetchWithProxy).mock.calls[1][0])).toContain('/git/trees/main');
+  });
+
+  it('should filter out non-blob items and files without promptfooconfig', async () => {
+    vi.mocked(fetchWithProxy).mockResolvedValue(
+      mockTreeResponse([
+        { path: 'examples/example1/promptfooconfig.yaml', type: 'blob' },
+        { path: 'examples/example1/utils.ts', type: 'blob' },
+        { path: 'examples/example2', type: 'tree' }, // directory, not blob
+        { path: 'examples/no-config/README.md', type: 'blob' },
+        { path: 'src/index.ts', type: 'blob' }, // not in examples/
+      ]),
+    );
+
+    const result = await fetchExampleList();
+
+    expect(result).toEqual(['example1']);
   });
 
   it('should return sorted list', async () => {
-    const mockResponse = {
-      ok: true,
-      json: vi.fn().mockResolvedValue([
-        { name: 'zebra', type: 'dir' },
-        { name: 'alpha', type: 'dir' },
-        { name: 'beta', type: 'dir' },
+    vi.mocked(fetchWithProxy).mockResolvedValue(
+      mockTreeResponse([
+        { path: 'examples/zebra/promptfooconfig.yaml', type: 'blob' },
+        { path: 'examples/alpha/promptfooconfig.yaml', type: 'blob' },
+        { path: 'examples/beta/promptfooconfig.yaml', type: 'blob' },
       ]),
-    };
-    vi.mocked(fetchWithProxy).mockResolvedValue(mockResponse as unknown as Response);
+    );
 
     const result = await fetchExampleList();
 
@@ -95,24 +120,23 @@ describe('fetchExampleList', () => {
 describe('downloadExample', () => {
   beforeEach(() => {
     vi.resetAllMocks();
+    resetTreeCache();
     vi.mocked(fs.existsSync).mockReturnValue(false);
     vi.mocked(fs.mkdirSync).mockReturnValue(undefined);
     vi.mocked(fs.writeFileSync).mockReturnValue(undefined);
   });
 
   it('should download all files in an example', async () => {
-    // Mock fetching example file list
     vi.mocked(fetchWithProxy).mockImplementation(async (url) => {
-      if (String(url).includes('/contents/examples/test-example')) {
-        return {
-          ok: true,
-          json: vi.fn().mockResolvedValue([
-            { name: 'config.yaml', type: 'file', path: 'examples/test-example/config.yaml' },
-            { name: 'README.md', type: 'file', path: 'examples/test-example/README.md' },
-          ]),
-        } as unknown as Response;
+      const urlStr = String(url);
+      // resolveRef call + getExampleFiles call (both hit tree API)
+      if (urlStr.includes('/git/trees/')) {
+        return mockTreeResponse([
+          { path: 'examples/test-example/config.yaml', type: 'blob' },
+          { path: 'examples/test-example/README.md', type: 'blob' },
+        ]);
       }
-      // Mock raw file download
+      // Raw file download
       return {
         ok: true,
         text: vi.fn().mockResolvedValue('file content'),
@@ -128,14 +152,12 @@ describe('downloadExample', () => {
 
   it('should call progress callback', async () => {
     vi.mocked(fetchWithProxy).mockImplementation(async (url) => {
-      if (String(url).includes('/contents/examples/')) {
-        return {
-          ok: true,
-          json: vi.fn().mockResolvedValue([
-            { name: 'file1.yaml', type: 'file', path: 'examples/test/file1.yaml' },
-            { name: 'file2.yaml', type: 'file', path: 'examples/test/file2.yaml' },
-          ]),
-        } as unknown as Response;
+      const urlStr = String(url);
+      if (urlStr.includes('/git/trees/')) {
+        return mockTreeResponse([
+          { path: 'examples/test/file1.yaml', type: 'blob' },
+          { path: 'examples/test/file2.yaml', type: 'blob' },
+        ]);
       }
       return {
         ok: true,
@@ -156,15 +178,9 @@ describe('downloadExample', () => {
 
   it('should handle download errors gracefully', async () => {
     vi.mocked(fetchWithProxy).mockImplementation(async (url) => {
-      if (String(url).includes('/contents/examples/')) {
-        return {
-          ok: true,
-          json: vi
-            .fn()
-            .mockResolvedValue([
-              { name: 'file.yaml', type: 'file', path: 'examples/test/file.yaml' },
-            ]),
-        } as unknown as Response;
+      const urlStr = String(url);
+      if (urlStr.includes('/git/trees/')) {
+        return mockTreeResponse([{ path: 'examples/test/file.yaml', type: 'blob' }]);
       }
       // Fail the file download
       return {
@@ -180,10 +196,7 @@ describe('downloadExample', () => {
   });
 
   it('should return error when no files found', async () => {
-    vi.mocked(fetchWithProxy).mockResolvedValue({
-      ok: true,
-      json: vi.fn().mockResolvedValue([]),
-    } as unknown as Response);
+    vi.mocked(fetchWithProxy).mockResolvedValue(mockTreeResponse([]));
 
     const result = await downloadExample('empty-example', '/output');
 
@@ -197,15 +210,9 @@ describe('downloadExample', () => {
   it('should create target directory if it does not exist', async () => {
     vi.mocked(fs.existsSync).mockReturnValue(false);
     vi.mocked(fetchWithProxy).mockImplementation(async (url) => {
-      if (String(url).includes('/contents/examples/')) {
-        return {
-          ok: true,
-          json: vi
-            .fn()
-            .mockResolvedValue([
-              { name: 'file.yaml', type: 'file', path: 'examples/test/file.yaml' },
-            ]),
-        } as unknown as Response;
+      const urlStr = String(url);
+      if (urlStr.includes('/git/trees/')) {
+        return mockTreeResponse([{ path: 'examples/test/file.yaml', type: 'blob' }]);
       }
       return {
         ok: true,
@@ -221,28 +228,12 @@ describe('downloadExample', () => {
   it('should handle subdirectories in examples', async () => {
     vi.mocked(fetchWithProxy).mockImplementation(async (url) => {
       const urlStr = String(url);
-      // GitHub API call for main example directory
-      if (urlStr.includes('api.github.com') && urlStr.endsWith('/contents/examples/test')) {
-        return {
-          ok: true,
-          json: vi.fn().mockResolvedValue([
-            { name: 'file.yaml', type: 'file', path: 'examples/test/file.yaml' },
-            { name: 'subdir', type: 'dir', path: 'examples/test/subdir' },
-          ]),
-        } as unknown as Response;
+      if (urlStr.includes('/git/trees/')) {
+        return mockTreeResponse([
+          { path: 'examples/test/file.yaml', type: 'blob' },
+          { path: 'examples/test/subdir/nested.yaml', type: 'blob' },
+        ]);
       }
-      // GitHub API call for subdirectory
-      if (urlStr.includes('api.github.com') && urlStr.includes('/contents/examples/test/subdir')) {
-        return {
-          ok: true,
-          json: vi
-            .fn()
-            .mockResolvedValue([
-              { name: 'nested.yaml', type: 'file', path: 'examples/test/subdir/nested.yaml' },
-            ]),
-        } as unknown as Response;
-      }
-      // Raw file downloads (from raw.githubusercontent.com)
       return {
         ok: true,
         text: vi.fn().mockResolvedValue('content'),

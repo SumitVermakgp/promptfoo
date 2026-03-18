@@ -53,16 +53,11 @@ export interface ShareAppProps {
   onCancel?: () => void;
   /** Called when complete */
   onComplete?: (shareUrl: string) => void;
+  /** Called with the controller after mount */
+  onController?: (controller: ShareController) => void;
 }
 
-// Type-safe global state for share UI controller communication.
-// Uses uniquely-prefixed property names to avoid collisions. Only one instance
-// should be active at a time (enforced by the CLI's single-command architecture).
-interface ShareGlobal {
-  __shareSetProgress?: React.Dispatch<React.SetStateAction<ShareProgress>>;
-}
-
-const shareGlobal = globalThis as typeof globalThis & ShareGlobal;
+type SetProgressFn = React.Dispatch<React.SetStateAction<ShareProgress>>;
 
 export function ShareApp({
   evalId,
@@ -72,6 +67,7 @@ export function ShareApp({
   onConfirm,
   onCancel,
   onComplete,
+  onController,
 }: ShareAppProps) {
   const { exit } = useApp();
   const [clipboardAvailable] = useState(() => isClipboardAvailable());
@@ -130,13 +126,12 @@ export function ShareApp({
     }
   });
 
-  // Expose update function for external control
+  // Expose controller via callback prop instead of global state
   useEffect(() => {
-    shareGlobal.__shareSetProgress = setProgress;
-    return () => {
-      delete shareGlobal.__shareSetProgress;
-    };
-  }, []);
+    if (onController) {
+      onController(createShareController(setProgress));
+    }
+  }, [onController]);
 
   // Auto-start if skipping confirmation (use ref to avoid re-firing)
   const onConfirmRef = useRef(onConfirm);
@@ -300,20 +295,18 @@ export interface ShareController {
   error(message: string): void;
 }
 
-export function createShareController(): ShareController {
-  const getSetProgress = () => shareGlobal.__shareSetProgress;
-
+export function createShareController(setProgress: SetProgressFn): ShareController {
   return {
     setPhase(phase) {
-      getSetProgress()?.((prev: ShareProgress) => ({ ...prev, phase }));
+      setProgress((prev: ShareProgress) => ({ ...prev, phase }));
     },
 
     setProgress(progressValue) {
-      getSetProgress()?.((prev: ShareProgress) => ({ ...prev, progress: progressValue }));
+      setProgress((prev: ShareProgress) => ({ ...prev, progress: progressValue }));
     },
 
     complete(shareUrl) {
-      getSetProgress()?.((prev: ShareProgress) => ({
+      setProgress((prev: ShareProgress) => ({
         ...prev,
         phase: 'complete',
         shareUrl,
@@ -322,7 +315,7 @@ export function createShareController(): ShareController {
     },
 
     error(message) {
-      getSetProgress()?.((prev: ShareProgress) => ({
+      setProgress((prev: ShareProgress) => ({
         ...prev,
         phase: 'error',
         error: message,

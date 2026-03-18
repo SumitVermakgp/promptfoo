@@ -46,24 +46,25 @@ export async function initInkRedteamGenerate(
   _options: RedteamGenerateRunnerOptions = {},
 ): Promise<RedteamGenerateUIResult> {
   // Dynamic imports to avoid loading ink/React when used as library
-  const [
-    React,
-    { renderInteractive },
-    { RedteamGenerateApp, createRedteamGenerateController },
-    { ErrorBoundary },
-  ] = await Promise.all([
-    import('react'),
-    import('../render'),
-    import('./RedteamGenerateApp'),
-    import('../components/shared/ErrorBoundary'),
-  ]);
+  const [React, { renderInteractive }, { RedteamGenerateApp }, { ErrorBoundary }] =
+    await Promise.all([
+      import('react'),
+      import('../render'),
+      import('./RedteamGenerateApp'),
+      import('../components/shared/ErrorBoundary'),
+    ]);
 
   let resolveExit: () => void;
   const exitPromise = new Promise<void>((resolve) => {
     resolveExit = resolve;
   });
 
-  const controller = createRedteamGenerateController();
+  // Controller is created inside the component and delivered via onController callback
+  let controller: RedteamGenerateController | null = null;
+  let resolveController: (c: RedteamGenerateController) => void;
+  const controllerPromise = new Promise<RedteamGenerateController>((resolve) => {
+    resolveController = resolve;
+  });
 
   const renderResult = await renderInteractive(
     React.createElement(
@@ -81,6 +82,10 @@ export async function initInkRedteamGenerate(
         onCancel: () => {
           resolveExit();
         },
+        onController: (c: RedteamGenerateController) => {
+          controller = c;
+          resolveController(c);
+        },
       }),
     ),
     {
@@ -88,15 +93,18 @@ export async function initInkRedteamGenerate(
       patchConsole: true,
       onSignal: (signal: string) => {
         logger.debug(`Received ${signal} signal - cancelling redteam generate`);
-        controller.error(`Interrupted by ${signal}`);
+        controller?.error(`Interrupted by ${signal}`);
         resolveExit();
       },
     },
   );
 
+  // Wait for the component to mount and deliver its controller
+  const resolvedController = await controllerPromise;
+
   return {
     renderResult,
-    controller,
+    controller: resolvedController,
     cleanup: () => {
       renderResult.cleanup();
     },

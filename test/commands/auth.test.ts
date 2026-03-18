@@ -404,7 +404,8 @@ describe('auth command', () => {
       );
     });
 
-    it('should exit with error when --no-interactive is passed without API key', async () => {
+    it('should open browser when --no-interactive is passed without API key in TTY', async () => {
+      // --no-interactive only disables the Ink UI, not the browser-based login flow
       vi.mocked(isNonInteractive).mockReturnValue(false);
       vi.mocked(cloudConfig.getAppUrl).mockReturnValue('https://www.promptfoo.app');
 
@@ -412,6 +413,19 @@ describe('auth command', () => {
         .find((cmd) => cmd.name() === 'auth')
         ?.commands.find((cmd) => cmd.name() === 'login');
       await loginCmd?.parseAsync(['node', 'test', '--no-interactive']);
+
+      expect(openAuthBrowser).toHaveBeenCalled();
+      expect(logger.error).not.toHaveBeenCalled();
+    });
+
+    it('should exit with error in non-interactive (CI) environment without API key', async () => {
+      vi.mocked(isNonInteractive).mockReturnValue(true);
+      vi.mocked(cloudConfig.getAppUrl).mockReturnValue('https://www.promptfoo.app');
+
+      const loginCmd = program.commands
+        .find((cmd) => cmd.name() === 'auth')
+        ?.commands.find((cmd) => cmd.name() === 'login');
+      await loginCmd?.parseAsync(['node', 'test']);
 
       expect(logger.error).toHaveBeenCalledWith(expect.stringContaining('Authentication required'));
       expect(process.exitCode).toBe(1);

@@ -1814,6 +1814,10 @@ class Evaluator {
         originalProgressCallback(completed, total, index, evalStep, metrics);
       }
 
+      if (!evalStep) {
+        return;
+      }
+
       if (isWebUI) {
         const provider = evalStep.provider.label || evalStep.provider.id();
         const vars = formatVarsForDisplay(evalStep.test.vars, 50);

@@ -180,15 +180,8 @@ export async function initInkEval(options: EvalRunnerOptions): Promise<InkEvalRe
       }
 
       // Also call original callback if present
-      // Note: The evaluator may pass undefined for evalStep during comparison steps
       if (originalCallback) {
-        originalCallback(
-          completed,
-          total,
-          index,
-          evalStep as RunEvalOptions,
-          metrics as PromptMetrics,
-        );
+        originalCallback(completed, total, index, evalStep, metrics);
       }
     },
   };

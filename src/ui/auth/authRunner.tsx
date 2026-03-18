@@ -34,16 +34,17 @@ export interface AuthUIResult {
  * Initialize the Ink-based auth UI.
  */
 export async function initInkAuth(options: AuthRunnerOptions = {}): Promise<AuthUIResult> {
-  const [React, { AuthApp, createAuthController }] = await Promise.all([
-    import('react'),
-    import('./AuthApp'),
-  ]);
+  const [React, { AuthApp }] = await Promise.all([import('react'), import('./AuthApp')]);
 
-  const controller = createAuthController();
+  // Controller is created inside the component and delivered via onController callback
+  let resolveController: (c: AuthController) => void;
+  const controllerPromise = new Promise<AuthController>((resolve) => {
+    resolveController = resolve;
+  });
 
   const { renderResult, cleanup, promises } = await initInkApp<AuthController>({
     componentName: 'AuthApp',
-    controller,
+    controller: undefined,
     channels: {
       teamSelection: undefined,
       result: undefined,
@@ -52,7 +53,7 @@ export async function initInkAuth(options: AuthRunnerOptions = {}): Promise<Auth
     render: (resolvers) =>
       React.createElement(AuthApp, {
         initialPhase: options.initialPhase || 'idle',
-        onTeamSelect: (team: TeamInfo) => {
+        onTeamSelect: (team: TeamInfo | undefined) => {
           resolvers.teamSelection(team);
         },
         onComplete: (userInfo: UserInfo) => {
@@ -66,12 +67,17 @@ export async function initInkAuth(options: AuthRunnerOptions = {}): Promise<Auth
           resolvers.teamSelection(undefined);
           resolvers.result(undefined);
         },
+        onController: (c: AuthController) => {
+          resolveController(c);
+        },
       }),
   });
 
+  const resolvedController = await controllerPromise;
+
   return {
     renderResult,
-    controller,
+    controller: resolvedController,
     cleanup,
     teamSelection: promises.teamSelection as Promise<TeamInfo | undefined>,
     result: promises.result as Promise<UserInfo | undefined>,

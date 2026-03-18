@@ -58,6 +58,10 @@ type EnvVars = {
    * Requires stdout to be a TTY.
    */
   PROMPTFOO_ENABLE_INTERACTIVE_UI?: boolean;
+  /** Force-enable interactive UI regardless of opt-in check (debug/testing escape hatch). Still requires TTY. */
+  PROMPTFOO_FORCE_INTERACTIVE_UI?: boolean;
+  /** Force-enable interactive init UI in CI environments (debug/testing escape hatch). Still requires TTY. */
+  PROMPTFOO_FORCE_INTERACTIVE_INIT?: boolean;
   PROMPTFOO_MAX_EVAL_TIME_MS?: number;
   PROMPTFOO_NO_TESTCASE_ASSERT_WARNING?: boolean;
   PROMPTFOO_PYTHON_DEBUG_ENABLED?: boolean;

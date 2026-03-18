@@ -28,6 +28,11 @@ export class TokenUsageTracker {
   private static instance: TokenUsageTracker;
   private providersMap: Map<string, TokenUsage> = new Map();
   private listeners: Set<TokenUsageListener> = new Set();
+  /**
+   * Maps raw provider id() to display label (label || id()).
+   * Set by the eval bridge so the UI hook can resolve labeled providers.
+   */
+  private labelMap: Map<string, string> = new Map();
 
   private constructor() {}
 
@@ -127,6 +132,40 @@ export class TokenUsageTracker {
    */
   public resetProviderUsage(providerId: string): void {
     this.providersMap.delete(providerId);
+  }
+
+  /**
+   * Register a mapping from raw provider id() to display label (label || id()).
+   * Called by the eval bridge so the UI can resolve labeled providers.
+   */
+  public setLabelMap(map: Map<string, string>): void {
+    this.labelMap = map;
+  }
+
+  /**
+   * Resolve a raw provider ID to its display label.
+   * Returns the raw ID if no label is registered.
+   */
+  public resolveLabel(rawId: string): string {
+    // Exact match (most common case)
+    if (this.labelMap.has(rawId)) {
+      return this.labelMap.get(rawId)!;
+    }
+    // Prefix matching: only match when the raw ID is a prefix of a map key
+    // (e.g., tracker reports "openai:gpt-4o-mini" and map has "openai:gpt-4o-mini").
+    // Use longest-match-wins to avoid "openai:gpt-4" matching before "openai:gpt-4o-mini".
+    let bestMatch: string | undefined;
+    let bestMatchLength = 0;
+    for (const [id, label] of this.labelMap) {
+      if (rawId.startsWith(id) && id.length > bestMatchLength) {
+        bestMatch = label;
+        bestMatchLength = id.length;
+      } else if (id.startsWith(rawId) && rawId.length > bestMatchLength) {
+        bestMatch = label;
+        bestMatchLength = rawId.length;
+      }
+    }
+    return bestMatch ?? rawId;
   }
 
   /**

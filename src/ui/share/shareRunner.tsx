@@ -40,16 +40,17 @@ export interface ShareUIResult {
  * Initialize the Ink-based share UI.
  */
 export async function initInkShare(options: ShareRunnerOptions): Promise<ShareUIResult> {
-  const [React, { ShareApp, createShareController }] = await Promise.all([
-    import('react'),
-    import('./ShareApp'),
-  ]);
+  const [React, { ShareApp }] = await Promise.all([import('react'), import('./ShareApp')]);
 
-  const controller = createShareController();
+  // Controller is created inside the component and delivered via onController callback
+  let resolveController: (c: ShareController) => void;
+  const controllerPromise = new Promise<ShareController>((resolve) => {
+    resolveController = resolve;
+  });
 
   const { renderResult, cleanup, promises } = await initInkApp<ShareController>({
     componentName: 'ShareApp',
-    controller,
+    controller: undefined,
     channels: {
       confirmation: false,
       result: undefined,
@@ -71,12 +72,17 @@ export async function initInkShare(options: ShareRunnerOptions): Promise<ShareUI
         onComplete: (shareUrl: string) => {
           resolvers.result(shareUrl);
         },
+        onController: (c: ShareController) => {
+          resolveController(c);
+        },
       }),
   });
 
+  const resolvedController = await controllerPromise;
+
   return {
     renderResult,
-    controller,
+    controller: resolvedController,
     cleanup,
     confirmation: promises.confirmation as Promise<boolean>,
     result: promises.result as Promise<string | undefined>,

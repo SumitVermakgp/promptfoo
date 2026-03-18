@@ -8,10 +8,21 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
+import { VERSION } from '../../../constants';
 import { fetchWithProxy } from '../../../util/fetch';
 
 const GITHUB_API_BASE = 'https://api.github.com/repos/promptfoo/promptfoo';
-const GITHUB_RAW_BASE = 'https://raw.githubusercontent.com/promptfoo/promptfoo/main';
+/** Refs to try, in order: current version tag first, then main as fallback */
+const DEFAULT_REFS = [VERSION, 'main'];
+
+const EXAMPLE_CONFIG_FILENAMES = new Set([
+  'promptfooconfig.yaml',
+  'promptfooconfig.yml',
+  'promptfooconfig.js',
+  'promptfooconfig.cjs',
+  'promptfooconfig.mjs',
+  'promptfooconfig.ts',
+]);
 
 export interface DownloadProgress {
   /** Current file being downloaded */
@@ -31,97 +42,95 @@ export interface DownloadResult {
 }
 
 /**
+ * Resolve the best available ref by trying each in order.
+ */
+interface TreeEntry {
+  path: string;
+  type: string;
+}
+
+/** Cached tree data to avoid redundant GitHub API calls within one session. */
+let cachedTree: { ref: string; tree: TreeEntry[] } | null = null;
+
+/** Reset the cached tree (for testing). */
+export function resetTreeCache(): void {
+  cachedTree = null;
+}
+
+/**
+ * Fetch the repository tree, trying version-pinned ref first then main.
+ * Caches the result so subsequent calls (fetchExampleList, getExampleFiles,
+ * downloadExample) reuse the same response instead of making 3+ identical requests.
+ */
+async function getTree(): Promise<{ ref: string; tree: TreeEntry[] }> {
+  if (cachedTree) {
+    return cachedTree;
+  }
+
+  for (const ref of DEFAULT_REFS) {
+    const response = await fetchWithProxy(`${GITHUB_API_BASE}/git/trees/${ref}?recursive=1`, {
+      headers: {
+        Accept: 'application/vnd.github.v3+json',
+        'User-Agent': 'promptfoo-cli',
+      },
+    });
+
+    if (!response.ok) {
+      continue;
+    }
+
+    const data = (await response.json()) as { tree?: TreeEntry[] };
+    cachedTree = { ref, tree: data.tree ?? [] };
+    return cachedTree;
+  }
+
+  throw new Error('Failed to fetch repository tree from GitHub');
+}
+
+/**
  * Fetch the list of available examples from GitHub.
+ *
+ * Uses the Git tree API (same as init.ts) to only list runnable examples
+ * — those that contain a promptfooconfig.* file.
  */
 export async function fetchExampleList(): Promise<string[]> {
-  const response = await fetchWithProxy(`${GITHUB_API_BASE}/contents/examples`, {
-    headers: {
-      Accept: 'application/vnd.github.v3+json',
-      'User-Agent': 'promptfoo-cli',
-    },
-  });
+  const { tree } = await getTree();
 
-  if (!response.ok) {
-    throw new Error(`Failed to fetch examples: ${response.statusText}`);
-  }
-
-  const contents = (await response.json()) as Array<{ name: string; type: string }>;
-
-  // Filter to only directories (actual examples)
-  return contents
-    .filter((item) => item.type === 'dir')
-    .map((item) => item.name)
-    .sort();
-}
-
-/**
- * Get the list of files in an example directory.
- */
-async function getExampleFiles(exampleName: string): Promise<string[]> {
-  const response = await fetchWithProxy(`${GITHUB_API_BASE}/contents/examples/${exampleName}`, {
-    headers: {
-      Accept: 'application/vnd.github.v3+json',
-      'User-Agent': 'promptfoo-cli',
-    },
-  });
-
-  if (!response.ok) {
-    throw new Error(`Failed to fetch example files: ${response.statusText}`);
-  }
-
-  const contents = (await response.json()) as Array<{ name: string; type: string; path: string }>;
-
-  const files: string[] = [];
-
-  for (const item of contents) {
-    if (item.type === 'file') {
-      files.push(item.path);
-    } else if (item.type === 'dir') {
-      // Recursively get files in subdirectories
-      const subFiles = await getSubdirectoryFiles(item.path);
-      files.push(...subFiles);
+  // Extract only examples that have a promptfooconfig.* at their root
+  const examples = new Set<string>();
+  for (const item of tree) {
+    if (item.type !== 'blob' || !item.path.startsWith('examples/')) {
+      continue;
+    }
+    const basename = path.posix.basename(item.path);
+    if (!EXAMPLE_CONFIG_FILENAMES.has(basename)) {
+      continue;
+    }
+    const exampleDir = path.posix.dirname(item.path).replace(/^examples\//, '');
+    if (exampleDir && exampleDir !== '.') {
+      examples.add(exampleDir);
     }
   }
 
-  return files;
+  return [...examples].sort((a, b) => a.localeCompare(b));
 }
 
 /**
- * Recursively get files from a subdirectory.
+ * Get the list of files in an example directory from the cached tree.
  */
-async function getSubdirectoryFiles(dirPath: string): Promise<string[]> {
-  const response = await fetchWithProxy(`${GITHUB_API_BASE}/contents/${dirPath}`, {
-    headers: {
-      Accept: 'application/vnd.github.v3+json',
-      'User-Agent': 'promptfoo-cli',
-    },
-  });
-
-  if (!response.ok) {
-    return [];
-  }
-
-  const contents = (await response.json()) as Array<{ name: string; type: string; path: string }>;
-
-  const files: string[] = [];
-
-  for (const item of contents) {
-    if (item.type === 'file') {
-      files.push(item.path);
-    } else if (item.type === 'dir') {
-      const subFiles = await getSubdirectoryFiles(item.path);
-      files.push(...subFiles);
-    }
-  }
-
-  return files;
+function getExampleFilesFromTree(exampleName: string, tree: TreeEntry[]): string[] {
+  const prefix = `examples/${exampleName}/`;
+  return tree
+    .filter((item) => item.type === 'blob' && item.path.startsWith(prefix))
+    .map((item) => item.path);
 }
 
 /**
- * Download a single file from GitHub.
+ * Download a single file from GitHub at the specified ref.
  */
-async function downloadFile(remotePath: string, localPath: string): Promise<void> {
-  const response = await fetchWithProxy(`${GITHUB_RAW_BASE}/${remotePath}`, {
+async function downloadFile(remotePath: string, localPath: string, ref: string): Promise<void> {
+  const rawBase = `https://raw.githubusercontent.com/promptfoo/promptfoo/${ref}`;
+  const response = await fetchWithProxy(`${rawBase}/${remotePath}`, {
     headers: {
       'User-Agent': 'promptfoo-cli',
     },
@@ -156,8 +165,11 @@ export async function downloadExample(
     errors: [],
   };
 
-  // Get list of files in the example
-  const files = await getExampleFiles(exampleName);
+  // Use cached tree (fetched once, reused across fetchExampleList + downloadExample)
+  const { ref, tree } = await getTree();
+
+  // Get list of files in the example from the cached tree
+  const files = getExampleFilesFromTree(exampleName, tree);
 
   if (files.length === 0) {
     result.success = false;
@@ -185,7 +197,7 @@ export async function downloadExample(
     });
 
     try {
-      await downloadFile(remotePath, localPath);
+      await downloadFile(remotePath, localPath, ref);
       result.filesDownloaded.push(relativePath);
     } catch (error) {
       result.success = false;
