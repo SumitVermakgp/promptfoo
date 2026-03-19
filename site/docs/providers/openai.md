@@ -28,6 +28,7 @@ The OpenAI provider supports the following model formats:
 - `openai:moderation:<model name>` - uses moderation models (default: `omni-moderation-latest`)
 - `openai:image:<model name>` - uses image generation models
 - `openai:transcription:<model name>` - uses audio transcription models
+- `openai:speech:<model name>` - uses text-to-speech models via `/v1/audio/speech`
 - `openai:realtime:<model name>` - uses realtime API models over WebSocket connections
 - `openai:video:<model name>` - uses Sora video generation models
 - `openai:agents:<agent name>` - runs agentic workflows via OpenAI Agents SDK
@@ -1656,6 +1657,24 @@ For a complete working example, see the [OpenAI audio transcription example](htt
 npx promptfoo@latest init --example openai-audio-transcription
 ```
 
+### Text-to-speech
+
+Use `openai:speech:<model name>` when you want audio output directly from the `/v1/audio/speech` endpoint. This is useful for synthesizing test utterances, generating simulated user turns, or feeding speech into a voice harness such as [`promptfoo:tau-voice`](/docs/providers/tau-voice/).
+
+```yaml title="promptfooconfig.yaml"
+prompts:
+  - 'I need to change my flight to Seattle.'
+
+providers:
+  - id: openai:speech:gpt-4o-mini-tts
+    config:
+      voice: alloy
+      format: pcm
+      instructions: 'Speak like a calm airline customer.'
+```
+
+The response includes base64-encoded audio in both `audio` and `metadata.audio`, with a normalized transcript matching the text input.
+
 ## Realtime API Models
 
 The Realtime API allows for real-time communication with GPT-4o class models using WebSockets, supporting both text and audio inputs/outputs with streaming responses.
@@ -1674,11 +1693,12 @@ To use the OpenAI Realtime API, use the provider format `openai:realtime:<model 
 
 ```yaml title="promptfooconfig.yaml"
 providers:
-  - id: openai:realtime:gpt-4o-realtime-preview-2024-12-17
+  - id: openai:realtime:gpt-realtime
     config:
       modalities: ['text', 'audio']
-      voice: 'alloy'
+      voice: 'cedar'
       instructions: 'You are a helpful assistant.'
+      turn_detection: null # recommended for half-duplex eval harnesses
       temperature: 0.7
       websocketTimeout: 60000 # 60 seconds
       # Optional: point to custom/proxy endpoints; WS URL is derived automatically
@@ -1692,17 +1712,20 @@ providers:
 
 The Realtime API configuration supports these parameters in addition to standard OpenAI parameters:
 
-| Parameter                    | Description                                         | Default                | Options                                 |
-| ---------------------------- | --------------------------------------------------- | ---------------------- | --------------------------------------- |
-| `modalities`                 | Types of content the model can process and generate | ['text', 'audio']      | 'text', 'audio'                         |
-| `voice`                      | Voice for audio generation                          | 'alloy'                | alloy, echo, fable, onyx, nova, shimmer |
-| `instructions`               | System instructions for the model                   | 'You are a helpful...' | Any text string                         |
-| `input_audio_format`         | Format of audio input                               | 'pcm16'                | 'pcm16', 'g711_ulaw', 'g711_alaw'       |
-| `output_audio_format`        | Format of audio output                              | 'pcm16'                | 'pcm16', 'g711_ulaw', 'g711_alaw'       |
-| `websocketTimeout`           | Timeout for WebSocket connection (milliseconds)     | 30000                  | Any number                              |
-| `max_response_output_tokens` | Maximum tokens in model response                    | 'inf'                  | Number or 'inf'                         |
-| `tools`                      | Array of tool definitions for function calling      | []                     | Array of tool objects                   |
-| `tool_choice`                | Controls how tools are selected                     | 'auto'                 | 'none', 'auto', 'required', or object   |
+| Parameter                    | Description                                         | Default                | Options                                                             |
+| ---------------------------- | --------------------------------------------------- | ---------------------- | ------------------------------------------------------------------- |
+| `modalities`                 | Types of content the model can process and generate | ['text', 'audio']      | 'text', 'audio'                                                     |
+| `voice`                      | Voice for audio generation                          | 'alloy'                | alloy, ash, ballad, coral, cedar, echo, marin, sage, shimmer, verse |
+| `instructions`               | System instructions for the model                   | 'You are a helpful...' | Any text string                                                     |
+| `input_audio_format`         | Format of audio input                               | 'pcm16'                | 'pcm16', 'g711_ulaw', 'g711_alaw'                                   |
+| `input_audio_transcription`  | Optional server-side transcription for audio input  | model default          | Object or `null`                                                    |
+| `output_audio_format`        | Format of audio output                              | 'pcm16'                | 'pcm16', 'g711_ulaw', 'g711_alaw'                                   |
+| `turn_detection`             | Server-side VAD and auto-response behavior          | provider default       | `null` or `{ type: 'server_vad', ... }`                             |
+| `maintainContext`            | Reuse one websocket session per `conversationId`    | true                   | boolean                                                             |
+| `websocketTimeout`           | Timeout for WebSocket connection (milliseconds)     | 30000                  | Any number                                                          |
+| `max_response_output_tokens` | Maximum tokens in model response                    | 'inf'                  | Number or 'inf'                                                     |
+| `tools`                      | Array of tool definitions for function calling      | []                     | Array of tool objects                                               |
+| `tool_choice`                | Controls how tools are selected                     | 'auto'                 | 'none', 'auto', 'required', or object                               |
 
 #### Custom endpoints and proxies (Realtime)
 
@@ -1712,7 +1735,7 @@ You can use this to target Azure-compatible endpoints, proxies, or local/dev ser
 
 ```yaml
 providers:
-  - id: openai:realtime:gpt-4o-realtime-preview
+  - id: openai:realtime:gpt-realtime
     config:
       apiBaseUrl: 'https://my-custom-api.com/v1' # connects to wss://my-custom-api.com/v1/realtime
       modalities: ['text']
@@ -1727,7 +1750,7 @@ The Realtime API supports function calling via tools, similar to the Chat API. H
 
 ```yaml title="promptfooconfig.yaml"
 providers:
-  - id: openai:realtime:gpt-4o-realtime-preview-2024-12-17
+  - id: openai:realtime:gpt-realtime
     config:
       tools:
         - type: function
@@ -1742,6 +1765,8 @@ providers:
             required: ['location']
       tool_choice: 'auto'
 ```
+
+For local eval harnesses that send pre-recorded or synthesized user audio turn by turn, set `turn_detection: null` so promptfoo can explicitly commit each input and request the next response without server VAD interrupting the turn.
 
 ### Complete Example
 
@@ -1758,6 +1783,7 @@ This example includes:
 - Conversation threading with separate conversation IDs
 - JavaScript prompt function for properly formatting messages
 - Function calling with the Realtime API
+- A Tau-style local voice eval example in [`examples/openai-realtime-tau-voice`](https://github.com/promptfoo/promptfoo/tree/main/examples/openai-realtime-tau-voice)
 - Detailed documentation on handling content types correctly
 
 ### Input and Message Format

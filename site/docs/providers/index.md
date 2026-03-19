@@ -95,6 +95,7 @@ providers:
 | [Web Browser](./browser.md)                         | Custom - Automate web browser interactions                     | `browser`                                                                       |
 | [Sequence](./sequence.md)                           | Custom - Multi-prompt sequencing                               | `sequence` with config.inputs array                                             |
 | [Simulated User](./simulated-user.md)               | Custom - Conversation simulator                                | `promptfoo:simulated-user`                                                      |
+| [Tau Voice](./tau-voice.md)                         | Custom - Local Tau-style voice eval harness                    | `promptfoo:tau-voice`                                                           |
 | [WatsonX](./watsonx.md)                             | IBM's WatsonX                                                  | `watsonx:ibm/granite-3-3-8b-instruct`                                           |
 | [X.AI](./xai.md)                                    | X.AI's models (text, image, video, voice)                      | `xai:grok-3-beta`, `xai:video:grok-imagine-video`                               |
 

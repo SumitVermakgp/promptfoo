@@ -7,7 +7,7 @@ description: 'Simulate realistic user interactions and behaviors for comprehensi
 
 The Simulated User Provider enables testing of multi-turn conversations between an AI agent and a simulated user. This is particularly useful for testing chatbots, virtual assistants, and other conversational AI applications in realistic scenarios.
 
-It works with both simple text-based agents and advanced function-calling agents, making it ideal for testing modern AI systems that use structured APIs.
+It works with both simple text-based agents and advanced function-calling agents, making it ideal for testing modern AI systems that use structured APIs. You can use Promptfoo's hosted simulator or plug in a local nested `userProvider` to keep the simulation fully in-process.
 
 It is inspired by [Tau-bench](https://github.com/sierra-research/tau-bench), a benchmark for evaluating tool-assisted agents.
 
@@ -61,6 +61,25 @@ For each turn:
 | `instructions`    | string              | Template for user instructions. Supports Nunjucks templating with access to test variables.                                    |
 | `maxTurns`        | number              | Maximum number of conversation turns. Defaults to 10.                                                                          |
 | `initialMessages` | Message[] or string | Optional. Pre-defined conversation history to start from. Can be an array of messages or a `file://` path (JSON/YAML formats). |
+| `userProvider`    | string or object    | Optional. Local provider used to generate simulated user turns in-process. If omitted, Promptfoo uses the hosted simulator.    |
+
+## Local in-process simulated user
+
+Set `userProvider` when you want the simulated user to run locally instead of using Promptfoo's hosted generation service:
+
+```yaml
+defaultTest:
+  provider:
+    id: 'promptfoo:simulated-user'
+    config:
+      maxTurns: 6
+      userProvider:
+        id: openai:chat:gpt-4.1-mini
+        config:
+          temperature: 0.2
+```
+
+This is useful when you want reproducible local evals, tighter control over the simulator model, or when you're composing a larger local harness such as the [Tau Voice provider](/docs/providers/tau-voice/).
 
 ## Initial Messages
 
