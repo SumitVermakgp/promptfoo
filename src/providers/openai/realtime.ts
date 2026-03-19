@@ -155,6 +155,7 @@ export class OpenAiRealtimeProvider extends OpenAiGenericProvider {
   private audioTimeout: NodeJS.Timeout | null = null;
   private functionCallbackHandler = new FunctionCallbackHandler();
   private activeConversationId: string | null = null;
+  private activeSessionId: string | null = null;
 
   constructor(
     modelName: string,
@@ -288,12 +289,36 @@ export class OpenAiRealtimeProvider extends OpenAiGenericProvider {
     };
   }
 
-  private async buildResponseCreateEvent() {
+  private resolveInstructions(
+    input?: ParsedRealtimePrompt,
+    context?: CallApiContextParams,
+  ): string {
+    const promptConfigInstructions =
+      typeof context?.prompt?.config?.instructions === 'string'
+        ? context.prompt.config.instructions
+        : undefined;
+    if (promptConfigInstructions) {
+      return promptConfigInstructions;
+    }
+
+    const audioPromptInstructions =
+      input?.inputMode === 'audio' && typeof context?.prompt?.raw === 'string'
+        ? context.prompt.raw.trim()
+        : '';
+    if (audioPromptInstructions) {
+      return [this.config.instructions, audioPromptInstructions].filter(Boolean).join('\n\n');
+    }
+
+    return this.config.instructions || 'You are a helpful assistant.';
+  }
+
+  private async buildResponseCreateEvent(runtimeInstructions?: string) {
     const responseEvent: any = {
       type: 'response.create',
       response: {
         modalities: this.config.modalities || ['text', 'audio'],
-        instructions: this.config.instructions || 'You are a helpful assistant.',
+        instructions:
+          runtimeInstructions || this.config.instructions || 'You are a helpful assistant.',
         voice: this.config.voice || 'alloy',
         temperature: this.config.temperature ?? 0.8,
       },
@@ -310,8 +335,8 @@ export class OpenAiRealtimeProvider extends OpenAiGenericProvider {
     return responseEvent;
   }
 
-  private async buildSessionUpdateEvent() {
-    const session = await this.getRealtimeSessionBody();
+  private async buildSessionUpdateEvent(runtimeInstructions?: string) {
+    const session = await this.getRealtimeSessionBody(runtimeInstructions);
     const { model: _model, ...sessionConfig } = session;
 
     return {
@@ -425,11 +450,12 @@ export class OpenAiRealtimeProvider extends OpenAiGenericProvider {
     });
   }
 
-  async getRealtimeSessionBody() {
+  async getRealtimeSessionBody(runtimeInstructions?: string) {
     // Default values
     const modalities = this.config.modalities || ['text', 'audio'];
     const voice = this.config.voice || 'alloy';
-    const instructions = this.config.instructions || 'You are a helpful assistant.';
+    const instructions =
+      runtimeInstructions || this.config.instructions || 'You are a helpful assistant.';
     const inputAudioFormat = this.config.input_audio_format || 'pcm16';
     const outputAudioFormat = this.config.output_audio_format || 'pcm16';
     const temperature = this.config.temperature ?? 0.8;
@@ -1052,6 +1078,7 @@ export class OpenAiRealtimeProvider extends OpenAiGenericProvider {
 
     try {
       const input = this.parsePromptInput(prompt);
+      const runtimeInstructions = this.resolveInstructions(input, context);
 
       // Use a persistent connection if we should maintain conversation context
       let result;
@@ -1060,11 +1087,16 @@ export class OpenAiRealtimeProvider extends OpenAiGenericProvider {
           this.cleanup();
         }
         this.activeConversationId = conversationId;
-        result = await this.persistentWebSocketRequest(input, conversationId);
+        result = await this.persistentWebSocketRequest(
+          input,
+          conversationId,
+          context,
+          runtimeInstructions,
+        );
       } else {
         // Connect directly to the WebSocket API using API key
         logger.debug(`Connecting directly to OpenAI Realtime API WebSocket with API key`);
-        result = await this.directWebSocketRequest(input);
+        result = await this.directWebSocketRequest(input, context, runtimeInstructions);
       }
 
       // Format the output - if function calls occurred, include that info
@@ -1123,6 +1155,7 @@ export class OpenAiRealtimeProvider extends OpenAiGenericProvider {
         tokenUsage: result.tokenUsage,
         cached: result.cached,
         metadata,
+        sessionId: result.metadata?.sessionId,
         // Add audio at top level if available (EvalOutputCell expects this)
         ...(metadata.audio && {
           audio: {
@@ -1154,10 +1187,15 @@ export class OpenAiRealtimeProvider extends OpenAiGenericProvider {
     }
   }
 
-  async directWebSocketRequest(prompt: string | ParsedRealtimePrompt): Promise<RealtimeResponse> {
+  async directWebSocketRequest(
+    prompt: string | ParsedRealtimePrompt,
+    context?: CallApiContextParams,
+    runtimeInstructions?: string,
+  ): Promise<RealtimeResponse> {
     return new Promise((resolve, reject) => {
       logger.debug(`Establishing direct WebSocket connection to OpenAI Realtime API`);
       const input = typeof prompt === 'string' ? this.parsePromptInput(prompt) : prompt;
+      const effectiveInstructions = runtimeInstructions || this.resolveInstructions(input, context);
 
       const wsUrl = this.getWebSocketUrl(this.modelName);
       logger.debug(`Connecting to WebSocket URL: ${wsUrl}`);
@@ -1191,6 +1229,7 @@ export class OpenAiRealtimeProvider extends OpenAiGenericProvider {
 
       let messageId = '';
       let responseId = '';
+      let sessionId = this.activeSessionId || undefined;
       let pendingFunctionCalls: { id: string; name: string; arguments: string }[] = [];
       let functionCallOccurred = false;
       const functionCallResults: string[] = [];
@@ -1215,7 +1254,7 @@ export class OpenAiRealtimeProvider extends OpenAiGenericProvider {
       ws.on('open', async () => {
         logger.debug('WebSocket connection established successfully');
 
-        sendEvent(await this.buildSessionUpdateEvent());
+        sendEvent(await this.buildSessionUpdateEvent(effectiveInstructions));
 
         await this.sendRealtimeInput(sendEvent, input);
       });
@@ -1236,6 +1275,12 @@ export class OpenAiRealtimeProvider extends OpenAiGenericProvider {
           switch (message.type) {
             case 'session.created':
             case 'session.updated':
+              if (message.session?.id) {
+                sessionId = message.session.id;
+                this.activeSessionId = message.session.id;
+              }
+              break;
+
             case 'response.content_part.added':
             case 'response.content_part.done':
             case 'rate_limits.updated':
@@ -1244,7 +1289,7 @@ export class OpenAiRealtimeProvider extends OpenAiGenericProvider {
             case 'conversation.item.created':
               if (message.item.role === 'user') {
                 messageId = message.item.id;
-                sendEvent(await this.buildResponseCreateEvent());
+                sendEvent(await this.buildResponseCreateEvent(effectiveInstructions));
               }
               break;
 
@@ -1334,7 +1379,7 @@ export class OpenAiRealtimeProvider extends OpenAiGenericProvider {
               ) {
                 for (const call of pendingFunctionCalls) {
                   try {
-                    const result = await this.executeFunctionCall(call);
+                    const result = await this.executeFunctionCall(call, context);
                     functionCallResults.push(result);
                     resolvedFunctionCalls.push({ ...call, output: result });
                     sendEvent({
@@ -1421,6 +1466,7 @@ export class OpenAiRealtimeProvider extends OpenAiGenericProvider {
                 metadata: {
                   responseId,
                   messageId,
+                  sessionId,
                   usage,
                   inputTranscript: input.inputTranscript,
                   outputTranscript: responseText,
@@ -1478,17 +1524,20 @@ export class OpenAiRealtimeProvider extends OpenAiGenericProvider {
   async persistentWebSocketRequest(
     prompt: string | ParsedRealtimePrompt,
     _conversationId?: string,
+    context?: CallApiContextParams,
+    runtimeInstructions?: string,
   ): Promise<RealtimeResponse> {
     return new Promise((resolve, reject) => {
       logger.debug(`Using persistent WebSocket connection to OpenAI Realtime API`);
       const input = typeof prompt === 'string' ? this.parsePromptInput(prompt) : prompt;
+      const effectiveInstructions = runtimeInstructions || this.resolveInstructions(input, context);
 
       // Create a new connection if needed or use existing
       const connection = this.persistentConnection;
 
       if (connection) {
         // Connection already exists, just set up message handlers
-        this.setupMessageHandlers(input, resolve, reject);
+        this.setupMessageHandlers(input, resolve, reject, context, effectiveInstructions);
       } else {
         // Create new connection
         const wsUrl = this.getWebSocketUrl(this.modelName);
@@ -1518,8 +1567,10 @@ export class OpenAiRealtimeProvider extends OpenAiGenericProvider {
               return;
             }
 
-            connection.send(JSON.stringify(await this.buildSessionUpdateEvent()));
-            this.setupMessageHandlers(input, resolve, reject);
+            connection.send(
+              JSON.stringify(await this.buildSessionUpdateEvent(effectiveInstructions)),
+            );
+            this.setupMessageHandlers(input, resolve, reject, context, effectiveInstructions);
           } catch (err) {
             logger.error(`Error initializing persistent websocket session: ${err}`);
             reject(err instanceof Error ? err : new Error(String(err)));
@@ -1540,6 +1591,8 @@ export class OpenAiRealtimeProvider extends OpenAiGenericProvider {
     input: ParsedRealtimePrompt,
     resolve: (value: RealtimeResponse) => void,
     reject: (reason: Error) => void,
+    context?: CallApiContextParams,
+    runtimeInstructions?: string,
   ): void {
     // Reset audio state at the start of each request
     this.resetAudioState();
@@ -1561,6 +1614,7 @@ export class OpenAiRealtimeProvider extends OpenAiGenericProvider {
     // Track message IDs and function call state
     let messageId = '';
     let responseId = '';
+    let sessionId = this.activeSessionId || undefined;
     let pendingFunctionCalls: { id: string; name: string; arguments: string }[] = [];
     let functionCallOccurred = false;
     const functionCallResults: string[] = [];
@@ -1611,6 +1665,7 @@ export class OpenAiRealtimeProvider extends OpenAiGenericProvider {
         this.previousItemId = null;
         this.assistantMessageIds = [];
         this.activeConversationId = null;
+        this.activeSessionId = null;
       }
 
       reject(error);
@@ -1666,6 +1721,7 @@ export class OpenAiRealtimeProvider extends OpenAiGenericProvider {
         metadata: {
           responseId,
           messageId,
+          sessionId,
           usage,
           inputTranscript: input.inputTranscript,
           outputTranscript: responseText,
@@ -1693,6 +1749,12 @@ export class OpenAiRealtimeProvider extends OpenAiGenericProvider {
         switch (message.type) {
           case 'session.created':
           case 'session.updated':
+            if (message.session?.id) {
+              sessionId = message.session.id;
+              this.activeSessionId = message.session.id;
+            }
+            break;
+
           case 'response.content_part.added':
           case 'response.content_part.done':
           case 'rate_limits.updated':
@@ -1701,7 +1763,7 @@ export class OpenAiRealtimeProvider extends OpenAiGenericProvider {
           case 'conversation.item.created':
             if (message.item.role === 'user') {
               messageId = message.item.id;
-              sendEvent(await this.buildResponseCreateEvent());
+              sendEvent(await this.buildResponseCreateEvent(runtimeInstructions));
             } else if (message.item.role === 'assistant') {
               this.assistantMessageIds.push(message.item.id);
               this.previousItemId = message.item.id;
@@ -1796,7 +1858,7 @@ export class OpenAiRealtimeProvider extends OpenAiGenericProvider {
             ) {
               for (const call of pendingFunctionCalls) {
                 try {
-                  const result = await this.executeFunctionCall(call);
+                  const result = await this.executeFunctionCall(call, context);
                   functionCallResults.push(result);
                   resolvedFunctionCalls.push({ ...call, output: result });
                   sendEvent({
@@ -1909,5 +1971,6 @@ export class OpenAiRealtimeProvider extends OpenAiGenericProvider {
     this.previousItemId = null;
     this.assistantMessageIds = [];
     this.activeConversationId = null;
+    this.activeSessionId = null;
   }
 }

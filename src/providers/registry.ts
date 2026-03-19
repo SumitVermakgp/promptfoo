@@ -89,6 +89,7 @@ import { OpenAiImageProvider } from './openai/image';
 import { OpenAiModerationProvider } from './openai/moderation';
 import { OpenAiRealtimeProvider } from './openai/realtime';
 import { OpenAiResponsesProvider } from './openai/responses';
+import { OpenAiSpeechProvider } from './openai/speech';
 import { OpenAiVideoProvider } from './openai/video';
 import { createOpenRouterProvider } from './openrouter';
 import { parsePackageProvider } from './packageParser';
@@ -107,6 +108,7 @@ import { ScriptCompletionProvider } from './scriptCompletion';
 import { SequenceProvider } from './sequence';
 import { SimulatedUser } from './simulatedUser';
 import { createSnowflakeProvider } from './snowflake';
+import { TauVoiceProvider } from './tauVoice';
 import { createTogetherAiProvider } from './togetherai';
 import { TransformersEmbeddingProvider, TransformersTextGenerationProvider } from './transformers';
 import { createTrueFoundryProvider } from './truefoundry';
@@ -237,9 +239,15 @@ async function createOpenAiProvider(
   }
   if (modelType === 'realtime') {
     return new OpenAiRealtimeProvider(
-      modelName || configuredModel || 'gpt-4o-realtime-preview-2024-12-17',
+      modelName || configuredModel || 'gpt-realtime',
       providerOptions,
     );
+  }
+  if (modelType === 'speech') {
+    return new OpenAiSpeechProvider(modelName || configuredModel || 'gpt-4o-mini-tts', {
+      ...providerOptions,
+      env: context.env,
+    });
   }
   if (modelType === 'responses') {
     return new OpenAiResponsesProvider(
@@ -285,7 +293,7 @@ async function createOpenAiProvider(
   }
 
   logger.warn(
-    `Unknown OpenAI model type: ${modelType}. Treating it as a chat model. Use one of the following providers: openai:chat:<model name>, openai:completion:<model name>, openai:embeddings:<model name>, openai:image:<model name>, openai:video:<model name>, openai:realtime:<model name>, openai:agents:<agent name>, openai:chatkit:<workflow_id>, openai:codex-sdk`,
+    `Unknown OpenAI model type: ${modelType}. Treating it as a chat model. Use one of the following providers: openai:chat:<model name>, openai:completion:<model name>, openai:embeddings:<model name>, openai:image:<model name>, openai:video:<model name>, openai:realtime:<model name>, openai:speech:<model name>, openai:agents:<agent name>, openai:chatkit:<workflow_id>, openai:codex-sdk`,
   );
   return new OpenAiChatCompletionProvider(modelType, providerOptions);
 }
@@ -1627,6 +1635,32 @@ export const providerMap: ProviderFactory[] = [
         config: {
           ...providerOptions.config,
           _resolvedUserProvider: resolvedUserProvider,
+        },
+      });
+    },
+  },
+  {
+    test: (providerPath: string) => providerPath === 'promptfoo:tau-voice',
+    create: async (
+      _providerPath: string,
+      providerOptions: ProviderOptions,
+      context: LoadApiProviderContext,
+    ) => {
+      const resolvedUserProvider = await resolveNestedProvider(
+        providerOptions.config?.userProvider,
+        context,
+      );
+      const resolvedTtsProvider = await resolveNestedProvider(
+        providerOptions.config?.ttsProvider,
+        context,
+      );
+
+      return new TauVoiceProvider({
+        ...providerOptions,
+        config: {
+          ...providerOptions.config,
+          _resolvedUserProvider: resolvedUserProvider,
+          _resolvedTtsProvider: resolvedTtsProvider,
         },
       });
     },
