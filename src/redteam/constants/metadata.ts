@@ -216,6 +216,16 @@ export const subCategoryDescriptions: Record<Plugin | Strategy, string> = {
   'telecom:coverage-misinformation': 'Tests for false coverage or service claims',
   'telecom:law-enforcement-request-handling': 'Tests for improper law enforcement request handling',
   'telecom:accessibility-violation': 'Tests for accessibility compliance violations',
+  'teen-safety':
+    'Teen safety testing for harmful body ideals, dangerous challenges, unsafe roleplay, and underage access to restricted goods or services',
+  'teen-safety:harmful-body-ideals':
+    'Tests for harmful body ideals, body shaming, and enabling disordered eating or exercise behaviors that are unsafe for teens',
+  'teen-safety:dangerous-content':
+    'Tests for dangerous activities, viral challenges, unsafe stunts, and dangerous at-home procedures inappropriate for teens',
+  'teen-safety:dangerous-roleplay':
+    'Tests for unsafe roleplay involving minors, including romantic, sexual, or violent interactive scenarios',
+  'teen-safety:age-restricted-goods-and-services':
+    'Tests for enabling or normalizing underage access to alcohol, vaping, gambling, weapons, and other age-restricted goods or services',
   realestate:
     'Real Estate AI safety testing for Fair Housing Act compliance, steering prevention, and housing discrimination vulnerabilities',
   'realestate:fair-housing-discrimination':
@@ -360,6 +370,11 @@ export const displayNameOverrides: Record<Plugin | Strategy, string> = {
   'telecom:coverage-misinformation': 'Coverage Misinformation',
   'telecom:law-enforcement-request-handling': 'Law Enforcement Request Handling',
   'telecom:accessibility-violation': 'Accessibility Violation',
+  'teen-safety': 'Teen Safety Suite',
+  'teen-safety:harmful-body-ideals': 'Harmful Body Ideals',
+  'teen-safety:dangerous-content': 'Dangerous Activities & Challenges',
+  'teen-safety:dangerous-roleplay': 'Dangerous Roleplay',
+  'teen-safety:age-restricted-goods-and-services': 'Age-Restricted Goods & Services',
   realestate: 'Real Estate Safety Suite',
   'realestate:fair-housing-discrimination': 'Fair Housing Discrimination',
   'realestate:steering': 'Real Estate Steering',
@@ -562,6 +577,11 @@ export const riskCategorySeverityMap: Record<Plugin, Severity> = {
   'telecom:coverage-misinformation': Severity.Medium,
   'telecom:law-enforcement-request-handling': Severity.Medium,
   'telecom:accessibility-violation': Severity.Medium,
+  'teen-safety': Severity.Critical,
+  'teen-safety:harmful-body-ideals': Severity.High,
+  'teen-safety:dangerous-content': Severity.Critical,
+  'teen-safety:dangerous-roleplay': Severity.Critical,
+  'teen-safety:age-restricted-goods-and-services': Severity.High,
   realestate: Severity.Critical,
   'realestate:fair-housing-discrimination': Severity.Critical,
   'realestate:steering': Severity.Critical,
@@ -739,6 +759,10 @@ export const riskCategories: Record<string, Plugin[]> = {
     'telecom:coverage-misinformation',
     'telecom:law-enforcement-request-handling',
     'telecom:accessibility-violation',
+    'teen-safety:harmful-body-ideals',
+    'teen-safety:dangerous-content',
+    'teen-safety:dangerous-roleplay',
+    'teen-safety:age-restricted-goods-and-services',
     'realestate:fair-housing-discrimination',
     'realestate:steering',
     'realestate:discriminatory-listings',
@@ -866,6 +890,11 @@ export const categoryAliases: Record<Plugin, string> = {
   'telecom:coverage-misinformation': 'TelecomCoverageMisinformation',
   'telecom:law-enforcement-request-handling': 'TelecomLawEnforcementRequestHandling',
   'telecom:accessibility-violation': 'TelecomAccessibilityViolation',
+  'teen-safety': 'TeenSafety',
+  'teen-safety:harmful-body-ideals': 'TeenSafetyHarmfulBodyIdeals',
+  'teen-safety:dangerous-content': 'TeenSafetyDangerousContent',
+  'teen-safety:dangerous-roleplay': 'TeenSafetyDangerousRoleplay',
+  'teen-safety:age-restricted-goods-and-services': 'TeenSafetyAgeRestrictedGoodsAndServices',
   realestate: 'Real Estate Safety',
   'realestate:fair-housing-discrimination': 'RealEstateFairHousingDiscrimination',
   'realestate:steering': 'RealEstateSteering',
@@ -1024,6 +1053,16 @@ export const pluginDescriptions: Record<Plugin, string> = {
     'Tests for improper handling of law enforcement data requests in violation of CALEA requirements and privacy laws',
   'telecom:accessibility-violation':
     'Tests for accessibility compliance violations under Section 255, Section 508, ADA, and 21st Century CVAA',
+  'teen-safety':
+    'Comprehensive teen safety testing for age-appropriate AI behavior across body image harms, dangerous activities, unsafe roleplay, and underage access risks',
+  'teen-safety:harmful-body-ideals':
+    'Tests for harmful body-ideal promotion, body shaming, and facilitation of unsafe restriction, purging, over-exercise, or concealment behaviors that can harm teens',
+  'teen-safety:dangerous-content':
+    'Tests for promotion, glorification, or facilitation of dangerous challenges, unsafe stunts, risky experimentation, and dangerous at-home procedures inappropriate for teens',
+  'teen-safety:dangerous-roleplay':
+    'Tests for interactive roleplay involving minors that simulates romantic, sexual, or violent scenarios that could normalize exploitation or harm',
+  'teen-safety:age-restricted-goods-and-services':
+    'Tests for encouragement, sourcing, or circumvention tactics that help minors access age-restricted goods or services such as alcohol, vaping, gambling, weapons, or adult-only venues',
   realestate:
     'Comprehensive real estate AI safety testing for Fair Housing Act compliance, steering prevention, lending discrimination (ECOA), valuation bias, and housing discrimination vulnerabilities',
   'realestate:fair-housing-discrimination':
