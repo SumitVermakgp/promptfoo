@@ -47,6 +47,7 @@ import { PromptExtractionPlugin } from './promptExtraction';
 import { RbacPlugin } from './rbac';
 import { ShellInjectionPlugin } from './shellInjection';
 import { SqlInjectionPlugin } from './sqlInjection';
+import { TEEN_SAFETY_DEFAULT_GRADER_EXAMPLES } from './teenSafety/graderExamples';
 import { ToolDiscoveryPlugin } from './toolDiscovery';
 import { ToxicChatPlugin } from './toxicChat';
 import { UnsafeBenchPlugin } from './unsafebench';
@@ -89,6 +90,22 @@ function computeModifiersFromConfig(config: PluginConfig | undefined): Record<st
     modifiers.__outputFormat = `Output each test case as JSON wrapped in <Prompt> tags: <Prompt>{${schema}}</Prompt>`;
   }
   return modifiers;
+}
+
+function applyDefaultGraderExamples(
+  key: string,
+  config: PluginConfig | undefined,
+): PluginConfig | undefined {
+  const defaultGraderExamples = TEEN_SAFETY_DEFAULT_GRADER_EXAMPLES[key];
+
+  if (!defaultGraderExamples?.length) {
+    return config;
+  }
+
+  return {
+    ...config,
+    graderExamples: [...defaultGraderExamples, ...(config?.graderExamples ?? [])],
+  };
 }
 
 async function fetchRemoteTestCases(
@@ -166,12 +183,23 @@ function createPluginFactory<T extends PluginConfig>(
     key,
     validate: validate as ((config: PluginConfig) => void) | undefined,
     action: async ({ provider, purpose, injectVar, n, delayMs, config }: PluginActionParams) => {
+      const configWithDefaults = applyDefaultGraderExamples(key, config as T);
+
       if ((PluginClass as any).canGenerateRemote === false || !shouldGenerateRemote()) {
         logger.debug(`Using local redteam generation for ${key}`);
-        return new PluginClass(provider, purpose, injectVar, config as T).generateTests(n, delayMs);
+        return new PluginClass(provider, purpose, injectVar, configWithDefaults as T).generateTests(
+          n,
+          delayMs,
+        );
       }
-      const testCases = await fetchRemoteTestCases(key, purpose, injectVar, n, config ?? {});
-      const computedModifiers = computeModifiersFromConfig(config);
+      const testCases = await fetchRemoteTestCases(
+        key,
+        purpose,
+        injectVar,
+        n,
+        configWithDefaults ?? {},
+      );
+      const computedModifiers = computeModifiersFromConfig(configWithDefaults);
 
       return testCases.map((testCase) => ({
         ...testCase,
@@ -180,7 +208,7 @@ function createPluginFactory<T extends PluginConfig>(
           pluginId: getShortPluginId(key),
           // Add computed config with modifiers so strategies can access them
           pluginConfig: {
-            ...config,
+            ...configWithDefaults,
             modifiers: computedModifiers,
           },
         },
@@ -351,6 +379,8 @@ function createRemotePlugin<T extends PluginConfig>(
     key,
     validate: validate as ((config: PluginConfig) => void) | undefined,
     action: async ({ purpose, injectVar, n, config }: PluginActionParams) => {
+      const configWithDefaults = applyDefaultGraderExamples(key, config);
+
       if (neverGenerateRemote()) {
         logger.error(`${key} plugin requires remote generation to be enabled`);
         return [];
@@ -360,16 +390,16 @@ function createRemotePlugin<T extends PluginConfig>(
         purpose,
         injectVar,
         n,
-        config ?? {},
+        configWithDefaults ?? {},
       );
-      const computedModifiers = computeModifiersFromConfig(config);
+      const computedModifiers = computeModifiersFromConfig(configWithDefaults);
       const testsWithMetadata = testCases.map((testCase) => ({
         ...testCase,
         metadata: {
           ...testCase.metadata,
           pluginId: getShortPluginId(key),
           pluginConfig: {
-            ...config,
+            ...configWithDefaults,
             modifiers: computedModifiers,
           },
         },
