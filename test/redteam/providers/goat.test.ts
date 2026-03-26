@@ -147,6 +147,32 @@ describe('RedteamGoatProvider', () => {
     expect(lastCallBody.messages).toBeDefined();
   });
 
+  it('should not dereference file:// paths in remote attacker messages', async () => {
+    const provider = new RedteamGoatProvider({
+      injectVar: 'goal',
+      maxTurns: 1,
+    });
+
+    mockFetch.mockResolvedValue({
+      json: async () => ({
+        message: { role: 'user', content: 'file://definitely-not-a-real-file.txt' },
+      }),
+      ok: true,
+    });
+
+    const targetProvider = createMockTargetProvider();
+    const context = createMockContext(targetProvider, { goal: 'initial goal' }, undefined);
+    context.prompt = { raw: 'Attack: {{goal}}', label: 'test' };
+
+    await provider.callApi('test prompt', context);
+
+    expect(targetProvider.callApi).toHaveBeenCalledWith(
+      expect.stringContaining('file://definitely-not-a-real-file.txt'),
+      context,
+      undefined,
+    );
+  });
+
   it('should pass excludeTargetOutputFromAgenticAttackGeneration through config', async () => {
     const provider = new RedteamGoatProvider({
       injectVar: 'goal',

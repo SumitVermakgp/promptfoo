@@ -103,6 +103,7 @@ interface GoatProviderResponse extends ProviderResponse {
 }
 
 export default class GoatProvider implements ApiProvider {
+  private static readonly INJECT_VAR_PLACEHOLDER = '__PROMPTFOO_GOAT_INJECT_VAR__';
   readonly config: GoatConfig;
   private readonly nunjucks: any;
   private readonly perTurnLayers: LayerConfig[];
@@ -411,17 +412,20 @@ export default class GoatProvider implements ApiProvider {
         // Build target vars - handle multi-input mode
         const targetVars: Record<string, VarValue> = {
           ...context.vars,
-          [this.config.injectVar]: processedMessage,
+          [this.config.injectVar]: GoatProvider.INJECT_VAR_PLACEHOLDER,
           ...(currentInputVars || {}),
         };
 
-        const renderedAttackerPrompt = await renderPrompt(
+        const renderedAttackerPromptTemplate = await renderPrompt(
           context.prompt,
           targetVars,
           context.filters,
           targetProvider,
           [this.config.injectVar], // Skip template rendering for injection variable to prevent double-evaluation
         );
+        const renderedAttackerPrompt = renderedAttackerPromptTemplate
+          .split(GoatProvider.INJECT_VAR_PLACEHOLDER)
+          .join(processedMessage);
 
         messages.push({
           role: attackerMessage.role,
