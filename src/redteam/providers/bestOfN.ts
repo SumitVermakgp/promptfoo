@@ -146,7 +146,7 @@ export default class BestOfNProvider implements ApiProvider {
             targetVars,
             context.filters,
             targetProvider,
-            [this.config.injectVar], // Skip template rendering for injection variable to prevent double-evaluation
+            [this.config.injectVar], // Skip special loading and template rendering for the injection variable
           );
 
           try {

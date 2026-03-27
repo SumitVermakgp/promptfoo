@@ -211,10 +211,10 @@ function detectMimeFromBase64(base64Data: string): string | null {
  * @param vars - Variables to substitute into the template
  * @param nunjucksFilters - Optional custom Nunjucks filters
  * @param provider - Optional API provider for context
- * @param skipRenderVars - Optional array of variable names to skip template rendering for.
- *                         This is critical for red team testing where injection variables
- *                         contain attack payloads (e.g., SSTI, XSS) that should NOT be
- *                         evaluated by Promptfoo's template engine before reaching the target.
+ * @param skipRenderVars - Optional array of variable names to skip special loading and template
+ *                         rendering for. This is critical for red team testing where injection
+ *                         variables contain attack payloads (e.g., SSTI, XSS) that should NOT be
+ *                         evaluated by Promptfoo before reaching the target.
  * @returns The rendered prompt string
  */
 export async function renderPrompt(
@@ -230,6 +230,10 @@ export async function renderPrompt(
 
   // Load files
   for (const [varName, value] of Object.entries(vars)) {
+    if (skipRenderVars?.includes(varName)) {
+      continue;
+    }
+
     if (typeof value === 'string' && value.startsWith('file://')) {
       const basePath = cliState.basePath || '';
       const filePath = path.resolve(process.cwd(), basePath, value.slice('file://'.length));

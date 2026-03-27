@@ -29,6 +29,30 @@ describe('renderPrompt with skipRenderVars', () => {
     expect(result).toContain('{{cycler["__init__"]["__globals__"]["os"]["popen"]("whoami")}}');
   });
 
+  it('should skip file:// dereferencing for variables in skipRenderVars array', async () => {
+    const prompt = { raw: 'User input: {{user_input}}', label: 'test' };
+    const vars = {
+      user_input: 'file:///tmp/does-not-exist.txt',
+    };
+
+    await expect(renderPrompt(prompt, vars)).rejects.toThrow('ENOENT');
+
+    const result = await renderPrompt(prompt, vars, {}, undefined, ['user_input']);
+    expect(result).toBe('User input: file:///tmp/does-not-exist.txt');
+  });
+
+  it('should skip package: dereferencing for variables in skipRenderVars array', async () => {
+    const prompt = { raw: 'User input: {{user_input}}', label: 'test' };
+    const vars = {
+      user_input: 'package:@promptfoo/does-not-exist:testFunction',
+    };
+
+    await expect(renderPrompt(prompt, vars)).rejects.toThrow('Package not found');
+
+    const result = await renderPrompt(prompt, vars, {}, undefined, ['user_input']);
+    expect(result).toBe('User input: package:@promptfoo/does-not-exist:testFunction');
+  });
+
   it('should still render other variables not in skipRenderVars', async () => {
     const prompt = { raw: 'Name: {{name}}, Payload: {{payload}}', label: 'test' };
     const vars = {
