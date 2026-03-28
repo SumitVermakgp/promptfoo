@@ -313,13 +313,13 @@ describe('AnthropicMessagesProvider', () => {
 
       await provider.callApi('Test prompt');
 
-      expect(provider.anthropic.messages.create).toHaveBeenCalledWith(
-        expect.objectContaining({
-          top_p: 0.9,
-          top_k: 40,
-        }),
-        {},
-      );
+      const callArgs = vi.mocked(provider.anthropic.messages.create).mock.calls[0][0];
+      expect(callArgs).toMatchObject({
+        top_p: 0.9,
+        top_k: 40,
+      });
+      // Anthropic rejects temperature + top_p together, so temperature should be omitted
+      expect(callArgs).not.toHaveProperty('temperature');
     });
 
     it('should include cache_control in API call when configured', async () => {

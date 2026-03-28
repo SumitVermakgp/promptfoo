@@ -199,12 +199,17 @@ export class AnthropicMessagesProvider extends AnthropicGenericProvider {
         getEnvInt('ANTHROPIC_MAX_TOKENS', config.thinking || thinking ? 2048 : 1024),
       messages: extractedMessages,
       stream: shouldStream,
-      temperature:
-        config.thinking || thinking
-          ? config.temperature
-          : (config.temperature ??
-            parseEnvFloat(this.env?.ANTHROPIC_TEMPERATURE) ??
-            getEnvFloat('ANTHROPIC_TEMPERATURE', 0)),
+      // Anthropic does not allow temperature with top_p — omit default temperature when top_p is set
+      ...(config.top_p != null && config.temperature == null
+        ? {}
+        : {
+            temperature:
+              config.thinking || thinking
+                ? config.temperature
+                : (config.temperature ??
+                  parseEnvFloat(this.env?.ANTHROPIC_TEMPERATURE) ??
+                  getEnvFloat('ANTHROPIC_TEMPERATURE', 0)),
+          }),
       ...(config.top_p == null ? {} : { top_p: config.top_p }),
       ...(config.top_k == null ? {} : { top_k: config.top_k }),
       ...(config.cache_control ? { cache_control: config.cache_control } : {}),

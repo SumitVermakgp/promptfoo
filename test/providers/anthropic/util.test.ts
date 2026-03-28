@@ -1128,7 +1128,7 @@ describe('Anthropic utilities', () => {
         use_cache: false,
         allowed_domains: ['example.com'],
       });
-      expect(requiredBetaFeatures).toEqual(['web-fetch-2026-03-09']);
+      expect(requiredBetaFeatures).toEqual(['web-fetch-2025-09-10']);
     });
 
     it('should process web_fetch_20260309 tool with all optional parameters', () => {
@@ -1175,7 +1175,8 @@ describe('Anthropic utilities', () => {
 
       expect(processedTools).toHaveLength(2);
       expect(requiredBetaFeatures).toContain('web-fetch-2025-09-10');
-      expect(requiredBetaFeatures).toContain('web-fetch-2026-03-09');
+      // Both v1 and v2 use the same beta header
+      expect(requiredBetaFeatures).toHaveLength(1);
     });
   });
 

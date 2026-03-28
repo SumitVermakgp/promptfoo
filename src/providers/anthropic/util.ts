@@ -346,8 +346,8 @@ export function processAnthropicTools(tools: (Anthropic.Tool | AnthropicToolConf
         }
       } else if (tool.type === 'web_fetch_20260309') {
         processedTools.push(transformWebFetchToolV2(tool as WebFetchToolConfigV2));
-        if (!requiredBetaFeatures.includes('web-fetch-2026-03-09')) {
-          requiredBetaFeatures.push('web-fetch-2026-03-09');
+        if (!requiredBetaFeatures.includes('web-fetch-2025-09-10')) {
+          requiredBetaFeatures.push('web-fetch-2025-09-10');
         }
       } else if (tool.type === 'web_search_20250305') {
         processedTools.push(transformWebSearchTool(tool as WebSearchToolConfig));
