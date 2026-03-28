@@ -1,8 +1,11 @@
+import readline from 'readline';
+
 import async from 'async';
 import chalk from 'chalk';
 import cliProgress from 'cli-progress';
 import { globSync } from 'glob';
 import {
+  hasTraceAwareAssertions,
   MODEL_GRADED_ASSERTION_TYPES,
   renderMetricName,
   runAssertions,
@@ -15,7 +18,7 @@ import { DEFAULT_MAX_CONCURRENCY, FILE_METADATA_KEY } from './constants';
 import { updateSignalFile } from './database/signal';
 import { getEnvBool, getEnvInt, getEvalTimeoutMs, getMaxEvalTimeMs, isCI } from './envars';
 import { collectFileMetadata, renderPrompt, runExtensionHook } from './evaluatorHelpers';
-import logger from './logger';
+import logger, { globalLogCallback, setLogCallback } from './logger';
 import { selectMaxScore } from './matchers';
 import { generateIdFromPrompt } from './models/prompt';
 import { CIProgressReporter } from './progress/ciProgressReporter';
@@ -69,6 +72,7 @@ import {
 } from './util/provider';
 import { getProviderUiKey } from './util/providerIdentity';
 import { promptYesNo } from './util/readline';
+import { extractVariablesFromTemplate } from './util/templates';
 import { sleep } from './util/time';
 import { TokenUsageTracker } from './util/tokenUsage';
 import {
@@ -98,9 +102,12 @@ import type { CallApiContextParams } from './types/providers';
 /**
  * Manages a single progress bar for the evaluation
  */
-class ProgressBarManager {
+export class ProgressBarManager {
   private progressBar: SingleBar | undefined;
   private isWebUI: boolean;
+  private originalLogCallback: ((message: string) => void) | null = null;
+  private installedLogCallback: ((message: string) => void) | null = null;
+  private pendingRender: ReturnType<typeof setImmediate> | null = null;
 
   // Track overall progress
   private totalCount: number = 0;
@@ -109,6 +116,67 @@ class ProgressBarManager {
 
   constructor(isWebUI: boolean) {
     this.isWebUI = isWebUI;
+  }
+
+  private clearProgressBarLine(): void {
+    readline.cursorTo(process.stderr, 0);
+    readline.clearLine(process.stderr, 0);
+  }
+
+  private scheduleRender(): void {
+    if (!this.progressBar || this.pendingRender) {
+      return;
+    }
+
+    this.pendingRender = setImmediate(() => {
+      this.pendingRender = null;
+      // biome-ignore lint/suspicious/noExplicitAny: cli-progress SingleBar.render() is not in public typings
+      (this.progressBar as any)?.render();
+    });
+  }
+
+  private handleLogMessage(): void {
+    if (!this.progressBar) {
+      return;
+    }
+
+    // Clear the progress bar's stream before Winston writes to the terminal,
+    // then re-render the bar after the log line has been emitted.
+    this.clearProgressBarLine();
+    this.scheduleRender();
+  }
+
+  /**
+   * Coordinate console logging with the progress bar to prevent visual corruption.
+   */
+  installLogInterceptor(): void {
+    if (!this.progressBar || this.isWebUI || this.installedLogCallback) {
+      return;
+    }
+
+    this.originalLogCallback = globalLogCallback;
+    this.installedLogCallback = (message: string) => {
+      this.originalLogCallback?.(message);
+      this.handleLogMessage();
+    };
+    setLogCallback(this.installedLogCallback);
+  }
+
+  /**
+   * Remove the log interceptor and restore original logger callback behavior.
+   */
+  removeLogInterceptor(): void {
+    if (this.pendingRender) {
+      clearImmediate(this.pendingRender);
+      this.pendingRender = null;
+    }
+
+    if (this.installedLogCallback && globalLogCallback === this.installedLogCallback) {
+      setLogCallback(this.originalLogCallback);
+    }
+
+    this.installedLogCallback = null;
+    this.originalLogCallback = null;
   }
 
   /**
@@ -145,6 +213,7 @@ class ProgressBarManager {
         },
         hideCursor: true,
         gracefulExit: true,
+        stream: process.stderr,
       },
       cliProgress.Presets.shades_classic,
     );
@@ -272,6 +341,72 @@ export function isAllowedPrompt(prompt: Prompt, allowedPrompts: string[] | undef
   return isPromptAllowed(prompt, allowedPrompts);
 }
 
+function isGeneratedRedteamAssertion(assertion: { type?: string }): boolean {
+  return typeof assertion.type === 'string' && assertion.type.startsWith('promptfoo:redteam:');
+}
+
+type NestedAssertion = {
+  type?: string;
+  assert?: NestedAssertion[];
+};
+
+function hasNestedRedteamAssertion(assertion: NestedAssertion): boolean {
+  if (isGeneratedRedteamAssertion(assertion)) {
+    return true;
+  }
+
+  return (
+    assertion.type === 'assert-set' &&
+    Array.isArray(assertion.assert) &&
+    assertion.assert.some(hasNestedRedteamAssertion)
+  );
+}
+
+function hasGeneratedRedteamMetadata(test: AtomicTestCase): boolean {
+  return (
+    typeof test.metadata?.pluginId === 'string' &&
+    (Boolean(test.metadata?.pluginConfig) || Boolean(test.metadata?.goal))
+  );
+}
+
+function shouldSkipRedteamInjectVar(
+  test: AtomicTestCase,
+  testSuite: TestSuite | undefined,
+  isRedteam: boolean,
+): boolean {
+  if (isRedteam || testSuite?.redteam) {
+    return true;
+  }
+
+  // Exported/generated redteam configs may not include a top-level `redteam` block,
+  // but they still carry redteam metadata or nested redteam assertions.
+  return hasGeneratedRedteamMetadata(test) || Boolean(test.assert?.some(hasNestedRedteamAssertion));
+}
+
+function getRedteamInjectVar(test: AtomicTestCase, prompt: Prompt, testSuite?: TestSuite): string {
+  if (testSuite?.redteam?.injectVar) {
+    return testSuite.redteam.injectVar;
+  }
+
+  const promptTemplate = prompt.template ?? prompt.raw;
+  const promptVars = extractVariablesFromTemplate(promptTemplate);
+
+  if (
+    testSuite?.redteam &&
+    promptVars.includes('prompt') &&
+    Object.prototype.hasOwnProperty.call(test.vars ?? {}, 'prompt')
+  ) {
+    return 'prompt';
+  }
+
+  const matchingVars = promptVars.filter((variableName) =>
+    Object.prototype.hasOwnProperty.call(test.vars ?? {}, variableName),
+  );
+
+  // Mirror redteam generation behavior by preferring the last prompt variable.
+  return matchingVars.at(-1) ?? promptVars.at(-1) ?? 'prompt';
+}
+
 /**
  * Runs a single test case.
  * @param options - The options for running the test case.
@@ -370,7 +505,9 @@ export async function runEval({
     // Render the prompt
     // For redteam tests, skip rendering the inject variable to prevent double-rendering of
     // attack payloads that may contain template syntax (e.g., {{purpose | trim}})
-    const skipRenderVars = isRedteam ? [testSuite?.redteam?.injectVar ?? 'prompt'] : undefined;
+    const skipRenderVars = shouldSkipRedteamInjectVar(test, testSuite, isRedteam)
+      ? [getRedteamInjectVar(test, promptForRender, testSuite)]
+      : undefined;
     const renderedPrompt = await renderPrompt(
       promptForRender,
       vars,
@@ -611,6 +748,10 @@ export async function runEval({
         if (parts.length >= 3) {
           traceId = parts[1];
         }
+      }
+
+      if (traceId && hasTraceAwareAssertions(test.assert)) {
+        await flushOtel();
       }
 
       // Pass providerTransformedOutput for contextTransform to use
@@ -1368,6 +1509,7 @@ class Evaluator {
                 prompt: {
                   ...prompt,
                   raw: prependToPrompt + prompt.raw + appendToPrompt,
+                  template: prompt.template ?? prompt.raw,
                 },
                 testSuite,
                 test: (() => {
@@ -1740,7 +1882,7 @@ class Evaluator {
               // If the provider has a cleanup method, call it
               if (typeof evalStep.provider.cleanup === 'function') {
                 try {
-                  evalStep.provider.cleanup();
+                  void evalStep.provider.cleanup();
                 } catch (cleanupErr) {
                   logger.warn(`Error during provider cleanup: ${cleanupErr}`);
                 }
@@ -1852,7 +1994,7 @@ class Evaluator {
       // Use CI-friendly progress reporter
       ciProgressReporter = new CIProgressReporter(runEvalOptions.length);
       ciProgressReporter.start();
-    } else if (this.options.showProgressBar && process.stdout.isTTY) {
+    } else if (this.options.showProgressBar && process.stderr.isTTY) {
       // Use visual progress bars
       progressBarManager = new ProgressBarManager(isWebUI);
     }
@@ -1917,6 +2059,7 @@ class Evaluator {
     // Now start the progress bar after info messages
     if (this.options.showProgressBar && progressBarManager) {
       await progressBarManager.initialize(runEvalOptions, concurrency, 0);
+      progressBarManager.installLogInterceptor();
     }
 
     try {
@@ -1964,6 +2107,7 @@ class Evaluator {
             clearTimeout(globalTimeout);
           }
           if (progressBarManager) {
+            progressBarManager.removeLogInterceptor();
             progressBarManager.stop();
           }
           if (ciProgressReporter) {
@@ -1976,6 +2120,10 @@ class Evaluator {
           return this.evalRecord;
         }
       } else {
+        if (progressBarManager) {
+          progressBarManager.removeLogInterceptor();
+          progressBarManager.stop();
+        }
         if (ciProgressReporter) {
           ciProgressReporter.error(`Evaluation failed: ${String(err)}`);
         }
@@ -2277,6 +2425,7 @@ class Evaluator {
     // Clean up progress reporters and timers
     try {
       if (progressBarManager) {
+        progressBarManager.removeLogInterceptor();
         progressBarManager.complete();
         progressBarManager.stop();
       } else if (ciProgressReporter) {

@@ -6,6 +6,7 @@ import { BaseTokenUsageSchema } from '../types/shared';
 import { isJavascriptFile, JAVASCRIPT_EXTENSIONS } from '../util/fileExtensions';
 import { PromptConfigSchema, PromptSchema } from '../validators/prompts';
 import { ApiProviderSchema, ProviderOptionsSchema, ProvidersSchema } from '../validators/providers';
+
 export { ProvidersSchema };
 
 import { RedteamConfigSchema } from '../validators/redteam';
@@ -610,7 +611,9 @@ export const BaseAssertionTypesSchema = z.enum([
   'similar:euclidean',
   'starts-with',
   'tool-call-f1',
+  'skill-used',
   'trajectory:goal-success',
+  'trajectory:tool-args-match',
   'trajectory:step-count',
   'trajectory:tool-sequence',
   'trajectory:tool-used',

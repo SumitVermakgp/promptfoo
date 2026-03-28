@@ -498,11 +498,11 @@ export async function doEval(
       showProgressBar:
         getLogLevel() === 'debug'
           ? false
-          : cmdObj.progressBar !== undefined
-            ? cmdObj.progressBar !== false
-            : evaluateOptions.showProgressBar !== undefined
-              ? evaluateOptions.showProgressBar
-              : true,
+          : cmdObj.progressBar === undefined
+            ? evaluateOptions.showProgressBar === undefined
+              ? true
+              : evaluateOptions.showProgressBar
+            : cmdObj.progressBar !== false,
       repeat,
       delay: !Number.isNaN(delay) && delay > 0 ? delay : undefined,
       maxConcurrency,
@@ -868,7 +868,7 @@ export async function doEval(
               const completionOutcome = await Promise.race([
                 inkSession.renderResult.waitUntilExit().then(() => 'exit' as const),
                 new Promise<'timeout'>((resolve) =>
-                  setTimeout(resolve, pendingInkShare !== null ? 30000 : 15000),
+                  setTimeout(resolve, pendingInkShare === null ? 15000 : 30000),
                 ),
               ]);
 
