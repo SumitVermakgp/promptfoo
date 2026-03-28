@@ -605,6 +605,8 @@ export async function doGenerateRedteam(
     }
   }
 
+  const generationAbortSignal = inkUI?.abortSignal ?? options.abortSignal;
+
   // Check for contexts - if present, generate tests for each context
   const contexts = redteamConfig?.contexts;
   const isMultiContext = contexts && contexts.length > 0;
@@ -638,7 +640,7 @@ export async function doGenerateRedteam(
           prompts: testSuite.prompts.map((prompt) => prompt.raw),
           maxConcurrency: config.maxConcurrency,
           delay: config.delay,
-          abortSignal: options.abortSignal,
+          abortSignal: generationAbortSignal,
           targetIds,
           showProgressBar: options.progressBar !== false && !inkController,
           testGenerationInstructions: augmentedTestGenerationInstructions,
@@ -699,7 +701,7 @@ export async function doGenerateRedteam(
         prompts: testSuite.prompts.map((prompt) => prompt.raw),
         maxConcurrency: config.maxConcurrency,
         delay: config.delay,
-        abortSignal: options.abortSignal,
+        abortSignal: generationAbortSignal,
         targetIds,
         showProgressBar: options.progressBar !== false && !inkController,
         testGenerationInstructions: augmentedTestGenerationInstructions,

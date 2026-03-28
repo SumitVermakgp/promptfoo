@@ -18,12 +18,13 @@ import { runDbMigrations } from '../migrate';
 import Eval from '../models/eval';
 import { loadApiProvider } from '../providers/index';
 import { neverGenerateRemote } from '../redteam/remoteGeneration';
-import { createShareableUrl, isSharingEnabled } from '../share';
+import { createShareableUrl, ensureShareAuthorEmail, isSharingEnabled } from '../share';
 import { generateTable } from '../table';
 import telemetry from '../telemetry';
 import { EMAIL_OK_STATUS } from '../types/email';
 import { CommandLineOptionsSchema, OutputFileExtension, TestSuiteSchema } from '../types/index';
 import { isApiProvider } from '../types/providers';
+import { extractProviderDefinitions } from '../ui/evalBridge';
 import { shouldUseInkUI } from '../ui/interactiveCheck';
 import { checkCloudPermissions, getEvalConfigFromCloud, getOrgContext } from '../util/cloud';
 import { clearConfigCache, loadDefaultConfig } from '../util/config/default';
@@ -53,7 +54,15 @@ import type {
   TestSuite,
   UnifiedConfig,
 } from '../types/index';
+import type { EvalUIController } from '../ui/evalBridge';
+import type { RenderResult } from '../ui/render';
 import type { FilterOptions } from './eval/filterTests';
+
+type InkEvalSession = {
+  renderResult: RenderResult;
+  controller: EvalUIController;
+  cleanup: () => void;
+};
 
 const EvalCommandSchema = CommandLineOptionsSchema.extend({
   help: z.boolean().optional(),
@@ -554,12 +563,34 @@ export async function doEval(
       );
     }
 
+    const resolvedConfig = config;
+    const resolvedTestSuite = testSuite;
+    invariant(resolvedConfig, 'Expected evaluation config to be loaded');
+    invariant(resolvedTestSuite, 'Expected test suite to be loaded');
+
     // Create or load eval record
     const evalRecord = resumeEval
       ? resumeEval
       : cmdObj.write
-        ? await Eval.create(config, testSuite.prompts, { runtimeOptions: options })
-        : new Eval(config, { runtimeOptions: options });
+        ? await Eval.create(resolvedConfig, resolvedTestSuite.prompts, { runtimeOptions: options })
+        : new Eval(resolvedConfig, { runtimeOptions: options });
+
+    const wantsToShare = shouldShareResults({
+      cliShare: cmdObj.share,
+      cliNoShare: cmdObj.noShare,
+      configShare: commandLineOptions?.share,
+      configSharing: resolvedConfig.sharing,
+    });
+    const canShareEval = isSharingEnabled(evalRecord);
+    const willShare =
+      wantsToShare &&
+      canShareEval &&
+      !evalRecord.shared &&
+      !getEnvBool('PROMPTFOO_DISABLE_SHARING');
+
+    if (willShare) {
+      await ensureShareAuthorEmail(evalRecord);
+    }
 
     // Graceful pause support via Ctrl+C (only when writing to database)
     const abortController = new AbortController();
@@ -629,33 +660,33 @@ export async function doEval(
     let evalStarted = false;
 
     if (useInkUI) {
+      let inkResult: InkEvalSession | null = null;
       try {
         // Use Ink-based interactive UI
         logger.debug('Using Ink UI for evaluation');
         cliState.inkUI = true;
 
-        // Determine if sharing is enabled and fetch org context if so
-        // Must use the same precedence logic as the actual sharing decision
         let shareContext: { organizationName: string; teamName?: string } | null = null;
-        const willShare = shouldShareResults({
-          cliShare: cmdObj.share,
-          cliNoShare: cmdObj.noShare,
-          configShare: commandLineOptions?.share,
-          configSharing: config.sharing,
-        });
-        if (willShare && isSharingEnabled(evalRecord)) {
+        if (willShare) {
           shareContext = await getOrgContext();
         }
 
+        // Seed provider identity before planning starts so exact provider totals
+        // and token updates use stable per-run keys.
+        const providerDefinitions = extractProviderDefinitions(resolvedTestSuite.providers);
+
         // Create abort controller for user cancellation via 'q' key
         const inkAbortController = new AbortController();
+        let inkUiInitialized = false;
+        let inkProgressCallback: EvaluateOptions['progressCallback'];
+        let inkProgressEventCallback: EvaluateOptions['progressEventCallback'];
 
         // Dynamic import: evalRunner.tsx uses JSX which compiles to a static jsx-runtime import.
         // Loading it lazily ensures React/Ink are only pulled in when Ink UI is actually used.
         const { initInkEval } = await import('../ui/evalRunner');
-        const inkResult = await initInkEval({
-          title: config.description || 'Evaluation',
-          evaluateOptions: {
+
+        try {
+          const inkEvaluateOptions: EvaluateOptions = {
             ...options,
             // Disable CLI progress bar - Ink UI has its own progress display
             showProgressBar: false,
@@ -666,34 +697,78 @@ export async function doEval(
             abortSignal: evaluateOptions.abortSignal
               ? AbortSignal.any([evaluateOptions.abortSignal, inkAbortController.signal])
               : inkAbortController.signal,
-            isRedteam: Boolean(config.redteam),
-          },
-          testSuite,
-          shareContext,
-          onCancel: () => {
-            logger.debug('Evaluation cancelled by user - aborting');
-            inkAbortController.abort();
-            // Also abort the main controller so the fallback evaluate path (line ~752)
-            // sees an aborted signal and doesn't re-run the evaluation.
-            abortController.abort();
-          },
-        });
+            isRedteam: Boolean(resolvedConfig.redteam),
+            progressCallback: (completed, total, index, evalStep, metrics, progress) => {
+              inkProgressCallback?.(completed, total, index, evalStep, metrics, progress);
+              options.progressCallback?.(completed, total, index, evalStep, metrics, progress);
+            },
+            progressEventCallback: async (event) => {
+              await inkProgressEventCallback?.(event);
+              await options.progressEventCallback?.(event);
+            },
+            onPlan: async (plan) => {
+              if (inkUiInitialized) {
+                return;
+              }
+              inkUiInitialized = true;
 
-        try {
-          // Initialize UI with total tests and providers
-          // Total test results = tests × prompts (each provider runs all combinations)
-          const numTests = testSuite.tests?.length ?? 0;
-          const numPrompts = testSuite.prompts?.length ?? 1;
-          const totalTestsPerProvider = numTests * numPrompts;
-          const providerIds = testSuite.providers.map((p) =>
-            typeof p === 'string' ? p : p.label || p.id?.() || 'unknown',
-          );
-          inkResult.controller.init(totalTestsPerProvider, providerIds, maxConcurrency);
-          inkResult.controller.start();
+              const initialProviders = providerDefinitions.map((provider) => ({
+                ...provider,
+                total: plan.providerTotals[provider.id] ?? 0,
+              }));
 
-          // Run evaluation with Ink progress callback
-          evalStarted = true;
-          ret = await evaluate(testSuite, evalRecord, inkResult.evaluateOptions);
+              inkResult = await initInkEval({
+                title: resolvedConfig.description || 'Evaluation',
+                evaluateOptions: inkEvaluateOptions,
+                testSuite: resolvedTestSuite,
+                initialTotalTests: plan.totalCount,
+                initialProviders,
+                initialConcurrency: plan.concurrency,
+                shareContext,
+                onCancel: () => {
+                  logger.debug('Evaluation cancelled by user - aborting');
+                  inkAbortController.abort();
+                  // Also abort the main controller so the fallback evaluate path sees an aborted signal.
+                  abortController.abort();
+                },
+              });
+
+              inkProgressCallback = (completed, total, index, evalStep, metrics, progress) => {
+                inkResult?.controller.progress(
+                  completed,
+                  total,
+                  index,
+                  evalStep,
+                  metrics,
+                  progress,
+                );
+              };
+              inkProgressEventCallback = async (event) => {
+                if (!inkResult) {
+                  return;
+                }
+                if (event.type === 'grading-start') {
+                  inkResult.controller.startGrading(event.completed, event.total);
+                  await new Promise((resolve) => setTimeout(resolve, 0));
+                  return;
+                }
+                inkResult.controller.progress(
+                  event.completed,
+                  event.total,
+                  0,
+                  undefined,
+                  undefined,
+                  {
+                    prompt: event.prompt,
+                  },
+                );
+              };
+              inkResult.controller.start();
+              evalStarted = true;
+            },
+          };
+
+          ret = await evaluate(resolvedTestSuite, evalRecord, inkEvaluateOptions);
 
           // Mark success immediately after evaluate() returns to prevent double-evaluation in catch block
           inkUISucceeded = true;
@@ -703,6 +778,9 @@ export async function doEval(
           if (inkAbortController.signal.aborted) {
             logger.debug('Evaluation was cancelled — skipping post-eval UI updates');
           } else {
+            const inkSession = inkResult as InkEvalSession | null;
+            invariant(inkSession, 'Interactive evaluation UI did not initialize');
+
             // Post-evaluation cleanup for retry-errors mode
             // SUCCESS: Now it's safe to delete the old ERROR results and recalculate metrics
             // Skip if evaluation was paused - no point cleaning up incomplete retry
@@ -727,23 +805,21 @@ export async function doEval(
               }
             }
 
-            // Get final stats from in-memory results (not DB) to handle --no-write correctly
-            const results = ret.results;
-            const passed = results.filter((r) => r.success).length;
-            const failed = results.filter((r) => !r.success && !r.error).length;
-            const errors = results.filter((r) => r.error).length;
+            // Use prompt metrics here because persisted evals intentionally do not
+            // retain result rows in memory during the run.
+            const stats = ret.getStats();
+            const passed = stats.successes;
+            const failed = stats.failures;
+            const errors = stats.errors;
 
-            inkResult.controller.complete({ passed, failed, errors });
+            inkSession.controller.complete({ passed, failed, errors });
 
-            // willShare was already calculated with full precedence logic before initInkEval
-            const canShareInk = isSharingEnabled(evalRecord);
-
-            logger.debug(`Ink UI - Wants to share: ${willShare}, Can share: ${canShareInk}`);
+            logger.debug(`Ink UI - Wants to share: ${willShare}, Can share: ${canShareEval}`);
 
             // Start sharing in background (non-blocking)
-            if (willShare && canShareInk) {
+            if (willShare && canShareEval) {
               // Update UI to show sharing in progress
-              inkResult.controller.setSharingStatus('sharing');
+              inkSession.controller.setSharingStatus('sharing');
 
               // Start sharing in background - don't await
               pendingInkShare = createShareableUrl(evalRecord, { showAuth: false, silent: true });
@@ -752,20 +828,29 @@ export async function doEval(
               pendingInkShare
                 .then((url) => {
                   if (url) {
-                    inkResult.controller.setSharingStatus('completed', url);
+                    inkSession.controller.setSharingStatus('completed', url);
                     evalRecord.shared = true;
                   } else {
-                    inkResult.controller.setSharingStatus('failed');
+                    inkSession.controller.setSharingStatus('failed');
                   }
                 })
                 .catch((err) => {
                   logger.debug(`Share failed: ${err}`);
-                  inkResult.controller.setSharingStatus('failed');
+                  inkSession.controller.setSharingStatus('failed');
                 });
             }
 
-            // Brief pause to show completion state
-            await new Promise((resolve) => setTimeout(resolve, 200));
+            const waitForCompletionState = async () => {
+              if (pendingInkShare !== null) {
+                await Promise.allSettled([pendingInkShare]);
+              }
+              await Promise.race([
+                inkSession.renderResult.waitUntilExit(),
+                new Promise((resolve) =>
+                  setTimeout(resolve, pendingInkShare !== null ? 5000 : 3000),
+                ),
+              ]);
+            };
 
             // Transition to results table within the same Ink session
             // Virtual scrolling handles large tables efficiently (only renders ~25 rows at a time)
@@ -773,14 +858,19 @@ export async function doEval(
             if (cmdObj.table && getLogLevel() !== 'debug') {
               const table = await evalRecord.getTable();
               if (table.body.length < 10000) {
-                inkResult.controller.showResults(table);
+                inkSession.controller.showResults(table);
                 // Wait for user to exit the results table
-                await inkResult.renderResult.waitUntilExit();
+                await inkSession.renderResult.waitUntilExit();
+              } else {
+                await waitForCompletionState();
               }
+            } else {
+              await waitForCompletionState();
             }
           }
         } finally {
-          inkResult.cleanup();
+          const inkSession = inkResult as InkEvalSession | null;
+          inkSession?.cleanup();
           cliState.inkUI = false;
           // Clean up SIGINT handler (matches non-Ink path behavior at line 753)
           cleanupHandler();
@@ -811,11 +901,11 @@ export async function doEval(
       // Use standard CLI output (either Ink UI not enabled or failed).
       // Skip if abort was triggered (e.g., user cancelled in Ink mode) — don't re-evaluate.
       try {
-        ret = await evaluate(testSuite, evalRecord, {
+        ret = await evaluate(resolvedTestSuite, evalRecord, {
           ...options,
           eventSource: 'cli',
           abortSignal: evaluateOptions.abortSignal,
-          isRedteam: Boolean(config.redteam),
+          isRedteam: Boolean(resolvedConfig.redteam),
         });
 
         // Post-evaluation cleanup for retry-errors mode
@@ -868,24 +958,14 @@ export async function doEval(
     // Clear results from memory to avoid memory issues
     evalRecord.clearResults();
 
-    // Determine sharing using shared utility (DRY - same logic as retry command)
-    const wantsToShare = shouldShareResults({
-      cliShare: cmdObj.share,
-      cliNoShare: cmdObj.noShare,
-      configShare: commandLineOptions?.share,
-      configSharing: config.sharing,
-    });
     const hasExplicitDisable =
       cmdObj.share === false || cmdObj.noShare === true || getEnvBool('PROMPTFOO_DISABLE_SHARING');
-
-    const canShareEval = isSharingEnabled(evalRecord);
 
     logger.debug(`Wants to share: ${wantsToShare}`);
     logger.debug(`Can share eval: ${canShareEval}`);
 
     // Unify share promise: use Ink's background share if it was already started,
     // otherwise start a new one. This ensures shareableUrl is available for file exports.
-    const willShare = wantsToShare && canShareEval && !evalRecord.shared;
     let sharePromise: Promise<string | null> | null = pendingInkShare ?? null;
     if (willShare && !sharePromise) {
       sharePromise = createShareableUrl(evalRecord, { silent: true });

@@ -5,7 +5,9 @@ import { authCommand } from '../../src/commands/auth';
 import { isNonInteractive } from '../../src/envars';
 import { getUserEmail, setUserEmail } from '../../src/globalConfig/accounts';
 import { cloudConfig } from '../../src/globalConfig/cloud';
+import { readGlobalConfig, writeGlobalConfig } from '../../src/globalConfig/globalConfig';
 import logger from '../../src/logger';
+import { AUTH_CANCELLED, initInkAuth, shouldUseInkAuth } from '../../src/ui/auth';
 import { getDefaultTeam, getUserTeams, resolveTeamFromIdentifier } from '../../src/util/cloud';
 import { fetchWithProxy } from '../../src/util/fetch/index';
 import { openAuthBrowser } from '../../src/util/server';
@@ -39,7 +41,13 @@ const mockApp = {
 vi.mock('../../src/envars');
 vi.mock('../../src/globalConfig/accounts');
 vi.mock('../../src/globalConfig/cloud');
+vi.mock('../../src/globalConfig/globalConfig');
 vi.mock('../../src/logger');
+vi.mock('../../src/ui/auth', () => ({
+  AUTH_CANCELLED: Symbol('AUTH_CANCELLED'),
+  initInkAuth: vi.fn(),
+  shouldUseInkAuth: vi.fn(() => false),
+}));
 vi.mock('../../src/util/cloud');
 vi.mock('../../src/util/fetch/index.ts');
 vi.mock('../../src/util/server');
@@ -56,6 +64,7 @@ describe('auth command', () => {
     program = new Command();
     process.exitCode = undefined;
     authCommand(program);
+    (cloudConfig as unknown as { reload: ReturnType<typeof vi.fn> }).reload = vi.fn();
 
     // Set up a basic mock that just returns the expected data
     vi.mocked(cloudConfig.validateAndSetApiToken).mockResolvedValue({
@@ -67,6 +76,8 @@ describe('auth command', () => {
 
     // performApiKeyLogin always calls getUserTeams() to load/cache teams
     vi.mocked(getUserTeams).mockResolvedValue([]);
+    vi.mocked(readGlobalConfig).mockReturnValue({ id: 'config-id' } as any);
+    vi.mocked(shouldUseInkAuth).mockReturnValue(false);
   });
 
   describe('login', () => {
@@ -229,6 +240,59 @@ describe('auth command', () => {
 
       // Reset exitCode
       process.exitCode = 0;
+    });
+
+    it('should roll back persisted auth state when Ink team selection is cancelled', async () => {
+      const snapshot = {
+        id: 'config-id',
+        cloud: { apiKey: 'old-key', currentOrganizationId: 'old-org' },
+        account: { email: 'old@example.com' },
+      } as any;
+      const teams = [
+        {
+          id: 'team-1',
+          name: 'Default',
+          slug: 'default',
+          organizationId: '1',
+          createdAt: '2024-01-01',
+          updatedAt: '2024-01-01',
+        },
+        {
+          id: 'team-2',
+          name: 'Security Team',
+          slug: 'security',
+          organizationId: '1',
+          createdAt: '2024-01-01',
+          updatedAt: '2024-01-01',
+        },
+      ];
+
+      vi.mocked(readGlobalConfig).mockReturnValue(snapshot);
+      vi.mocked(getUserTeams).mockResolvedValue(teams);
+      vi.mocked(shouldUseInkAuth).mockReturnValue(true);
+      vi.mocked(initInkAuth).mockResolvedValue({
+        controller: {
+          setStatusMessage: vi.fn(),
+          showTeamSelector: vi.fn(),
+          complete: vi.fn(),
+          error: vi.fn(),
+        },
+        teamSelection: Promise.resolve(AUTH_CANCELLED),
+        result: Promise.resolve(AUTH_CANCELLED),
+        cleanup: vi.fn(),
+      } as any);
+
+      const loginCmd = program.commands
+        .find((cmd) => cmd.name() === 'auth')
+        ?.commands.find((cmd) => cmd.name() === 'login');
+      await loginCmd?.parseAsync(['node', 'test', '--api-key', 'test-key']);
+
+      expect(writeGlobalConfig).toHaveBeenCalledWith(snapshot);
+      expect(
+        (cloudConfig as unknown as { reload: ReturnType<typeof vi.fn> }).reload,
+      ).toHaveBeenCalled();
+      expect(logger.info).toHaveBeenCalledWith('Login cancelled.');
+      expect(process.exitCode).toBeUndefined();
     });
 
     it('should use --team flag to set specific team', async () => {

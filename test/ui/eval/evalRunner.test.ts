@@ -33,6 +33,7 @@ vi.mock('../../../src/ui/EvalApp', () => ({
   createEvalController: vi.fn(() => ({
     init: vi.fn(),
     start: vi.fn(),
+    startGrading: vi.fn(),
     progress: vi.fn(),
     addError: vi.fn(),
     addLog: vi.fn(),
@@ -78,6 +79,7 @@ describe('evalRunner', () => {
     const createMockController = () => ({
       init: vi.fn(),
       start: vi.fn(),
+      startGrading: vi.fn(),
       progress: vi.fn(),
       addError: vi.fn(),
       addLog: vi.fn(),
@@ -128,11 +130,18 @@ describe('evalRunner', () => {
       const result = await initInkEval({
         title: 'Test Eval',
         evaluateOptions: {},
+        initialConcurrency: 3,
+        initialProviders: [{ id: 'openai:gpt-4#0', label: 'GPT-4', total: 2 }],
+        initialTotalTests: 2,
         testSuite: mockTestSuite as any,
       });
 
       // Verify renderInteractive was called
       expect(renderInteractive).toHaveBeenCalled();
+      const renderedProps = vi.mocked(renderInteractive).mock.calls[0][0].props as any;
+      expect(renderedProps.totalTests).toBe(2);
+      expect(renderedProps.providers).toEqual([{ id: 'openai:gpt-4#0', label: 'GPT-4', total: 2 }]);
+      expect(renderedProps.concurrency).toBe(3);
 
       // Verify result structure
       expect(result.controller).toBeDefined();
@@ -292,6 +301,96 @@ describe('evalRunner', () => {
 
       // The returned evaluateOptions should have showProgressBar disabled
       expect(result.evaluateOptions.showProgressBar).toBe(false);
+
+      const evalStep = {
+        provider: { id: () => 'openai:gpt-4' },
+        prompt: { raw: 'test prompt' },
+        test: { vars: {} },
+        promptIdx: 0,
+      } as any;
+
+      result.evaluateOptions.progressCallback?.(
+        1,
+        2,
+        0,
+        evalStep,
+        {
+          testPassCount: 0,
+          testFailCount: 0,
+          testErrorCount: 1,
+          totalLatencyMs: 50,
+          cost: 0.01,
+        } as any,
+        { outcome: 'error', providerTotal: 2 },
+      );
+
+      expect(mockController.progress).toHaveBeenCalledWith(1, 2, 0, evalStep, expect.any(Object), {
+        outcome: 'error',
+        providerTotal: 2,
+      });
+      expect(originalCallback).toHaveBeenCalledWith(1, 2, 0, evalStep, expect.any(Object), {
+        outcome: 'error',
+        providerTotal: 2,
+      });
+
+      result.cleanup();
+    });
+
+    it('should merge progress event callbacks for grading updates', async () => {
+      const mockCleanup = vi.fn();
+      const mockController = createMockController();
+      const originalProgressEventCallback = vi.fn();
+      const { shouldUseInkUI } = await import('../../../src/ui/interactiveCheck');
+      const { renderInteractive } = await import('../../../src/ui/render');
+
+      vi.mocked(shouldUseInkUI).mockReturnValue(true);
+
+      vi.mocked(renderInteractive).mockImplementation(async (element) => {
+        const props = element.props as any;
+        setTimeout(() => props.onController?.(mockController), 0);
+        return {
+          cleanup: mockCleanup,
+          clear: vi.fn(),
+          unmount: vi.fn(),
+          rerender: vi.fn(),
+          waitUntilExit: vi.fn().mockResolvedValue(undefined),
+          frames: [],
+          lastFrame: vi.fn(),
+          instance: {},
+        } as any;
+      });
+
+      const { initInkEval } = await import('../../../src/ui/evalRunner');
+
+      const result = await initInkEval({
+        title: 'Test Eval',
+        evaluateOptions: {
+          progressEventCallback: originalProgressEventCallback,
+        },
+        testSuite: { providers: [], prompts: [], tests: [] } as any,
+      });
+
+      await result.evaluateOptions.progressEventCallback?.({
+        type: 'grading-start',
+        completed: 3,
+        total: 4,
+        comparisonCompleted: 0,
+        comparisonTotal: 1,
+      });
+      await result.evaluateOptions.progressEventCallback?.({
+        type: 'grading-progress',
+        completed: 4,
+        total: 4,
+        comparisonCompleted: 1,
+        comparisonTotal: 1,
+        prompt: 'Prompt A',
+      });
+
+      expect(mockController.startGrading).toHaveBeenCalledWith(3, 4);
+      expect(mockController.progress).toHaveBeenCalledWith(4, 4, 0, undefined, undefined, {
+        prompt: 'Prompt A',
+      });
+      expect(originalProgressEventCallback).toHaveBeenCalledTimes(2);
 
       result.cleanup();
     });

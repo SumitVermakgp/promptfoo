@@ -154,6 +154,60 @@ describe('evalMachine', () => {
       expect(ctx.currentVars).toBe('question=hello');
       actor.stop();
     });
+
+    it('should update provider totals from explicit progress metadata', () => {
+      const actor = createActor(evalMachine);
+      actor.start();
+      actor.send({
+        type: 'INIT',
+        providers: [{ id: 'gpt-4#0', label: 'GPT-4', total: 0 }],
+        totalTests: 0,
+      });
+      actor.send({ type: 'START' });
+      actor.send({
+        type: 'PROGRESS',
+        completed: 1,
+        total: 3,
+        provider: 'gpt-4#0',
+        providerTotal: 3,
+        passedDelta: 1,
+      });
+
+      const ctx = actor.getSnapshot().context;
+      expect(ctx.totalTests).toBe(3);
+      expect(ctx.providers['gpt-4#0'].testCases.total).toBe(3);
+      expect(ctx.providers['gpt-4#0'].testCases.completed).toBe(1);
+      actor.stop();
+    });
+  });
+
+  describe('START_GRADING event', () => {
+    it('should transition from evaluating to grading with the latest totals', () => {
+      const actor = createActor(evalMachine);
+      actor.start();
+      actor.send({ type: 'INIT', providers: ['gpt-4'], totalTests: 3 });
+      actor.send({ type: 'START' });
+      actor.send({ type: 'START_GRADING', completed: 3, total: 4 });
+
+      expect(actor.getSnapshot().value).toBe('grading');
+      expect(actor.getSnapshot().context.completedTests).toBe(3);
+      expect(actor.getSnapshot().context.totalTests).toBe(4);
+      actor.stop();
+    });
+
+    it('should continue updating progress while grading', () => {
+      const actor = createActor(evalMachine);
+      actor.start();
+      actor.send({ type: 'INIT', providers: ['gpt-4'], totalTests: 3 });
+      actor.send({ type: 'START' });
+      actor.send({ type: 'START_GRADING', completed: 3, total: 4 });
+      actor.send({ type: 'PROGRESS', completed: 4, total: 4, prompt: 'Prompt A' });
+
+      const ctx = actor.getSnapshot().context;
+      expect(ctx.completedTests).toBe(4);
+      expect(ctx.currentPrompt).toBe('Prompt A');
+      actor.stop();
+    });
   });
 
   describe('COMPLETE event', () => {
@@ -499,6 +553,10 @@ describe('helper functions', () => {
       expect(getEvalPhase('evaluating')).toBe('evaluating');
     });
 
+    it('should return grading for grading state', () => {
+      expect(getEvalPhase('grading')).toBe('grading');
+    });
+
     it('should return evaluating for nested evaluating state', () => {
       expect(getEvalPhase({ evaluating: 'running' })).toBe('evaluating');
       expect(getEvalPhase({ evaluating: 'sharing' })).toBe('evaluating');
@@ -547,6 +605,7 @@ describe('helper functions', () => {
   describe('isRunning', () => {
     it('should return true for evaluating state', () => {
       expect(isRunning('evaluating')).toBe(true);
+      expect(isRunning('grading')).toBe(true);
       expect(isRunning({ evaluating: 'running' })).toBe(true);
       expect(isRunning({ evaluating: 'sharing' })).toBe(true);
     });

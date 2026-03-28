@@ -10,8 +10,16 @@
 
 import logger from '../logger';
 
-import type { EvaluateOptions, PromptMetrics, RunEvalOptions, TestSuite } from '../types/index';
+import type {
+  EvalProgressEvent,
+  EvalProgressInfo,
+  EvaluateOptions,
+  PromptMetrics,
+  RunEvalOptions,
+  TestSuite,
+} from '../types/index';
 import type { EvalUIController } from './evalBridge';
+import type { ProviderInput } from './machines/evalMachine';
 import type { RenderResult } from './render';
 import type { ShareContext } from './types';
 import type { InkUITransport } from './utils/InkUITransport';
@@ -25,6 +33,12 @@ export interface EvalRunnerOptions {
   evaluateOptions: EvaluateOptions;
   /** Test suite being evaluated */
   testSuite: TestSuite;
+  /** Exact total tests for the initial frame */
+  initialTotalTests?: number;
+  /** Exact providers for the initial frame */
+  initialProviders?: ProviderInput[];
+  /** Exact concurrency for the initial frame */
+  initialConcurrency?: number;
   /** Callback for when user cancels via UI */
   onCancel?: () => void;
   /** Share context (org/team) if sharing is enabled */
@@ -61,7 +75,7 @@ export interface InkEvalResult {
  *
  * try {
  *   // Initialize UI state
- *   controller.init(testSuite.tests.length, providerIds);
+ *   controller.init(testSuite.tests.length, providers);
  *   controller.start();
  *
  *   // Run evaluation (progress updates happen via evaluateOptions.progressCallback)
@@ -75,7 +89,16 @@ export interface InkEvalResult {
  * ```
  */
 export async function initInkEval(options: EvalRunnerOptions): Promise<InkEvalResult> {
-  const { title, showHelp = true, evaluateOptions, onCancel, shareContext } = options;
+  const {
+    title,
+    showHelp = true,
+    evaluateOptions,
+    initialConcurrency,
+    initialProviders,
+    initialTotalTests,
+    onCancel,
+    shareContext,
+  } = options;
 
   // Dynamic imports to avoid loading ink/React when used as library
   const [{ EvalApp }, { renderInteractive }] = await Promise.all([
@@ -106,7 +129,10 @@ export async function initInkEval(options: EvalRunnerOptions): Promise<InkEvalRe
     <EvalApp
       title={title}
       showHelp={showHelp}
+      concurrency={initialConcurrency}
+      providers={initialProviders}
       shareContext={shareContext}
+      totalTests={initialTotalTests}
       onController={(c) => {
         controller = c;
         resolveController!(c);
@@ -164,6 +190,7 @@ export async function initInkEval(options: EvalRunnerOptions): Promise<InkEvalRe
 
   // Create modified evaluate options with Ink progress callback
   const originalCallback = evaluateOptions.progressCallback;
+  const originalProgressEventCallback = evaluateOptions.progressEventCallback;
   const modifiedOptions: EvaluateOptions = {
     ...evaluateOptions,
     showProgressBar: false, // Disable cli-progress bar
@@ -173,16 +200,31 @@ export async function initInkEval(options: EvalRunnerOptions): Promise<InkEvalRe
       index: number,
       evalStep?: RunEvalOptions,
       metrics?: PromptMetrics,
+      progress?: EvalProgressInfo,
     ) => {
       // Update Ink UI
       if (controller) {
-        controller.progress(completed, total, index, evalStep, metrics);
+        controller.progress(completed, total, index, evalStep, metrics, progress);
       }
 
       // Also call original callback if present
       if (originalCallback) {
-        originalCallback(completed, total, index, evalStep, metrics);
+        originalCallback(completed, total, index, evalStep, metrics, progress);
       }
+    },
+    progressEventCallback: async (event: EvalProgressEvent) => {
+      if (controller) {
+        if (event.type === 'grading-start') {
+          controller.startGrading(event.completed, event.total);
+          await new Promise((resolve) => setTimeout(resolve, 0));
+        } else {
+          controller.progress(event.completed, event.total, 0, undefined, undefined, {
+            prompt: event.prompt,
+          });
+        }
+      }
+
+      originalProgressEventCallback?.(event);
     },
   };
 

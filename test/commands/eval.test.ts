@@ -18,7 +18,9 @@ import logger from '../../src/logger';
 import { runDbMigrations } from '../../src/migrate';
 import Eval from '../../src/models/eval';
 import { loadApiProvider } from '../../src/providers/index';
-import { createShareableUrl, isSharingEnabled } from '../../src/share';
+import { createShareableUrl, ensureShareAuthorEmail, isSharingEnabled } from '../../src/share';
+import { initInkEval } from '../../src/ui/evalRunner';
+import { shouldUseInkUI } from '../../src/ui/interactiveCheck';
 import {
   ConfigPermissionError,
   checkCloudPermissions,
@@ -52,6 +54,10 @@ vi.mock('../../src/redteam/shared', async (importOriginal) => {
 });
 vi.mock('../../src/share');
 vi.mock('../../src/table');
+vi.mock('../../src/ui/evalRunner');
+vi.mock('../../src/ui/interactiveCheck', () => ({
+  shouldUseInkUI: vi.fn(),
+}));
 vi.mock('../../src/util/cloud', async () => ({
   ...(await vi.importActual('../../src/util/cloud')),
   getDefaultTeam: vi.fn().mockResolvedValue({ id: 'test-team-id', name: 'Test Team' }),
@@ -100,6 +106,18 @@ describe('evalCommand', () => {
   beforeEach(() => {
     program = new Command();
     vi.clearAllMocks();
+    vi.mocked(shouldUseInkUI).mockReturnValue(false);
+    vi.mocked(initInkEval).mockReset();
+    vi.mocked(TokenUsageTracker.getInstance).mockReturnValue({
+      getProviderIds: vi.fn().mockReturnValue([]),
+      getProviderUsage: vi.fn(),
+      trackUsage: vi.fn(),
+      resetAllUsage: vi.fn(),
+      resetProviderUsage: vi.fn(),
+      getTotalUsage: vi.fn(),
+      setLabelMap: vi.fn(),
+      cleanup: vi.fn(),
+    } as any);
     vi.mocked(cloudConfig.getSharing).mockReset();
     vi.mocked(cloudConfig.getSharing).mockReturnValue(undefined);
     vi.mocked(getEvalConfigFromCloud).mockReset();
@@ -265,7 +283,96 @@ describe('evalCommand', () => {
 
     await doEval(cmdObj, config, defaultConfigPath, {});
 
+    expect(ensureShareAuthorEmail).toHaveBeenCalledWith(expect.any(Eval));
     expect(createShareableUrl).toHaveBeenCalledWith(expect.any(Eval), { silent: true });
+  });
+
+  it('should derive Ink completion counts from prompt metrics when results are not loaded in memory', async () => {
+    const mockController = {
+      init: vi.fn(),
+      start: vi.fn(),
+      startGrading: vi.fn(),
+      progress: vi.fn(),
+      complete: vi.fn(),
+      error: vi.fn(),
+      setPhase: vi.fn(),
+      setShareUrl: vi.fn(),
+      setSharingStatus: vi.fn(),
+      setSessionPhase: vi.fn(),
+      showResults: vi.fn(),
+      addError: vi.fn(),
+      addLog: vi.fn(),
+      cleanup: vi.fn(),
+    };
+    const cleanup = vi.fn();
+    const evalRecord = new Eval({ description: 'Ink summary test' } as UnifiedConfig, {
+      persisted: true,
+      prompts: [
+        {
+          raw: 'prompt',
+          provider: 'echo',
+          metrics: {
+            score: 0,
+            testPassCount: 2,
+            testFailCount: 1,
+            testErrorCount: 0,
+            assertPassCount: 0,
+            assertFailCount: 0,
+            totalLatencyMs: 0,
+            tokenUsage: {
+              total: 0,
+              prompt: 0,
+              completion: 0,
+              cached: 0,
+              numRequests: 0,
+            },
+            namedScores: {},
+            namedScoresCount: {},
+            cost: 0,
+          },
+        } as any,
+      ],
+    });
+    evalRecord.results = [];
+
+    vi.mocked(shouldUseInkUI).mockReturnValue(true);
+    vi.mocked(initInkEval).mockResolvedValue({
+      controller: mockController as any,
+      evaluateOptions: {
+        progressCallback: vi.fn(),
+        progressEventCallback: vi.fn(),
+      },
+      cleanup,
+      renderResult: {
+        waitUntilExit: vi.fn().mockResolvedValue(undefined),
+      } as any,
+    });
+    vi.mocked(evaluate).mockImplementation(async (_suite, _record, evaluateOptions: any) => {
+      await evaluateOptions.onPlan?.({
+        evalCount: 3,
+        comparisonCount: 0,
+        totalCount: 3,
+        providerTotals: { 'echo#0': 3 },
+        concurrency: 4,
+      });
+      return evalRecord;
+    });
+    vi.mocked(isSharingEnabled).mockReturnValue(false);
+
+    await doEval({ table: false }, defaultConfig, defaultConfigPath, {});
+
+    expect(initInkEval).toHaveBeenCalledWith(
+      expect.objectContaining({
+        initialConcurrency: 4,
+        initialTotalTests: 3,
+      }),
+    );
+    expect(mockController.complete).toHaveBeenCalledWith({
+      passed: 2,
+      failed: 1,
+      errors: 0,
+    });
+    expect(cleanup).toHaveBeenCalled();
   });
 
   it('should not share when share is explicitly set to false even if config has sharing enabled', async () => {

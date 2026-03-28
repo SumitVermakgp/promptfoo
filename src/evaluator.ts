@@ -44,6 +44,7 @@ import {
   type AssertionType,
   type AtomicTestCase,
   type CompletedPrompt,
+  type EvalProgressInfo,
   type EvaluateOptions,
   type EvaluateResult,
   type EvaluateStats,
@@ -66,6 +67,7 @@ import {
   isOpenAiProvider,
   isProviderAllowed,
 } from './util/provider';
+import { getProviderUiKey } from './util/providerIdentity';
 import { promptYesNo } from './util/readline';
 import { sleep } from './util/time';
 import { TokenUsageTracker } from './util/tokenUsage';
@@ -544,7 +546,7 @@ export async function runEval({
 
     // Track token usage at the provider level
     if (response.tokenUsage) {
-      const providerId = provider.id();
+      const providerId = getProviderUiKey(provider);
       const trackingId = provider.constructor?.name
         ? `${providerId} (${provider.constructor.name})`
         : providerId;
@@ -1460,6 +1462,12 @@ class Evaluator {
       }
     }
 
+    const providerTotals = new Map<string, number>();
+    for (const evalOption of runEvalOptions) {
+      const providerKey = getProviderUiKey(evalOption.provider);
+      providerTotals.set(providerKey, (providerTotals.get(providerKey) ?? 0) + 1);
+    }
+
     // Determine run parameters
 
     if (concurrency > 1) {
@@ -1479,6 +1487,16 @@ class Evaluator {
         concurrency = 1;
       }
     }
+
+    const compareRowsCount = rowsWithSelectBestAssertion.size + rowsWithMaxScoreAssertion.size;
+
+    await options.onPlan?.({
+      evalCount: runEvalOptions.length,
+      comparisonCount: compareRowsCount,
+      totalCount: runEvalOptions.length + compareRowsCount,
+      providerTotals: Object.fromEntries(providerTotals),
+      concurrency,
+    });
 
     // Actually run the eval
     let numComplete = 0;
@@ -1543,6 +1561,7 @@ class Evaluator {
         }
 
         numComplete++;
+        const completedCount = numComplete;
 
         try {
           await this.evalRecord.addResult(row);
@@ -1657,7 +1676,21 @@ class Evaluator {
         });
 
         if (options.progressCallback) {
-          options.progressCallback(numComplete, runEvalOptions.length, index, evalStep, metrics);
+          options.progressCallback(
+            completedCount,
+            runEvalOptions.length,
+            index,
+            evalStep,
+            metrics,
+            {
+              outcome: row.success
+                ? 'pass'
+                : row.failureReason === ResultFailureReason.ERROR
+                  ? 'error'
+                  : 'fail',
+              providerTotal: providerTotals.get(getProviderUiKey(evalStep.provider)),
+            },
+          );
         }
       }
     };
@@ -1755,11 +1788,12 @@ class Evaluator {
         }
 
         numComplete++;
+        const completedCount = numComplete;
 
         // Progress callback
         if (options.progressCallback) {
           options.progressCallback(
-            numComplete,
+            completedCount,
             runEvalOptions.length,
             typeof index === 'number' ? index : 0,
             evalStep,
@@ -1781,6 +1815,10 @@ class Evaluator {
               namedScores: {},
               namedScoresCount: {},
               cost: 0,
+            },
+            {
+              outcome: 'error',
+              providerTotal: providerTotals.get(getProviderUiKey(evalStep.provider)),
             },
           );
         }
@@ -1809,9 +1847,16 @@ class Evaluator {
       progressBarManager = new ProgressBarManager(isWebUI);
     }
 
-    this.options.progressCallback = (completed, total, index, evalStep, metrics) => {
+    this.options.progressCallback = (
+      completed,
+      total,
+      index,
+      evalStep,
+      metrics,
+      progress?: EvalProgressInfo,
+    ) => {
       if (originalProgressCallback) {
-        originalProgressCallback(completed, total, index, evalStep, metrics);
+        originalProgressCallback(completed, total, index, evalStep, metrics, progress);
       }
 
       if (!evalStep) {
@@ -1821,16 +1866,16 @@ class Evaluator {
       if (isWebUI) {
         const provider = evalStep.provider.label || evalStep.provider.id();
         const vars = formatVarsForDisplay(evalStep.test.vars, 50);
-        logger.info(`[${numComplete}/${total}] Running ${provider} with vars: ${vars}`);
+        logger.info(`[${completed}/${total}] Running ${provider} with vars: ${vars}`);
       } else if (progressBarManager) {
         // Progress bar update is handled by the manager
         const phase = evalStep.test.options?.runSerially ? 'serial' : 'concurrent';
         progressBarManager.updateProgress(index, evalStep, phase, metrics);
       } else if (ciProgressReporter) {
         // CI progress reporter update
-        ciProgressReporter.update(numComplete);
+        ciProgressReporter.update(completed);
       } else {
-        logger.debug(`Eval #${index + 1} complete (${numComplete} of ${runEvalOptions.length})`);
+        logger.debug(`Eval #${index + 1} complete (${completed} of ${runEvalOptions.length})`);
       }
     };
 
@@ -1948,9 +1993,6 @@ class Evaluator {
       return this.evalRecord;
     }
 
-    // Do we have to run comparisons between row outputs?
-    const compareRowsCount = rowsWithSelectBestAssertion.size + rowsWithMaxScoreAssertion.size;
-
     // Update progress reporters based on comparison count
     if (progressBarManager) {
       if (compareRowsCount > 0) {
@@ -1962,6 +2004,15 @@ class Evaluator {
     }
 
     let compareCount = 0;
+    if (compareRowsCount > 0) {
+      await options.progressEventCallback?.({
+        type: 'grading-start',
+        completed: runEvalOptions.length,
+        total: runEvalOptions.length + compareRowsCount,
+        comparisonCompleted: 0,
+        comparisonTotal: compareRowsCount,
+      });
+    }
     for (const testIdx of rowsWithSelectBestAssertion) {
       compareCount++;
 
@@ -2087,6 +2138,14 @@ class Evaluator {
         } else if (!isWebUI) {
           logger.debug(`Model-graded comparison #${compareCount} of ${compareRowsCount} complete`);
         }
+        await options.progressEventCallback?.({
+          type: 'grading-progress',
+          completed: runEvalOptions.length + compareCount,
+          total: runEvalOptions.length + compareRowsCount,
+          comparisonCompleted: compareCount,
+          comparisonTotal: compareRowsCount,
+          prompt: resultsToCompare[0].prompt.raw,
+        });
       }
     }
 
@@ -2098,6 +2157,7 @@ class Evaluator {
       }
 
       for (const testIdx of rowsWithMaxScoreAssertion) {
+        compareCount++;
         const resultsToCompare = this.evalRecord.persisted
           ? await this.evalRecord.fetchResultsByTestIdx(testIdx)
           : this.evalRecord.results.filter((r) => r.testIdx === testIdx);
@@ -2131,6 +2191,14 @@ class Evaluator {
           } else if (!isWebUI) {
             logger.debug(`Max-score assertion for test #${testIdx} complete`);
           }
+          await options.progressEventCallback?.({
+            type: 'grading-progress',
+            completed: runEvalOptions.length + compareCount,
+            total: runEvalOptions.length + compareRowsCount,
+            comparisonCompleted: compareCount,
+            comparisonTotal: compareRowsCount,
+            prompt: resultsToCompare[0].prompt.raw,
+          });
 
           // Update results with max-score outcomes
           for (let index = 0; index < resultsToCompare.length; index++) {

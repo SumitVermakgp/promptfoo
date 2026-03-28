@@ -16,6 +16,7 @@ import { EvalProvider, useEval } from './contexts/EvalContext';
 import { UIProvider } from './contexts/UIContext';
 import { createEvalUIController, type EvalUIController } from './evalBridge';
 
+import type { ProviderInput } from './machines/evalMachine';
 import type { ShareContext } from './types';
 
 export interface EvalAppProps {
@@ -32,7 +33,9 @@ export interface EvalAppProps {
   /** Initial total test count (can be updated via controller) */
   totalTests?: number;
   /** Initial provider list (can be updated via controller) */
-  providers?: string[];
+  providers?: ProviderInput[];
+  /** Initial concurrency value (can be updated via controller) */
+  concurrency?: number;
   /** Whether to show keyboard shortcuts help */
   showHelp?: boolean;
   /** Share context (org/team) if sharing is enabled */
@@ -50,6 +53,7 @@ function EvalAppInner({
   onController,
   totalTests = 0,
   providers = [],
+  concurrency,
   showHelp,
   shareContext,
 }: EvalAppProps) {
@@ -68,10 +72,14 @@ function EvalAppInner({
 
   // Initialize if initial values provided
   useEffect(() => {
-    if (totalTests > 0 || providers.length > 0) {
-      init(totalTests, providers);
+    if (
+      (totalTests > 0 || providers.length > 0) &&
+      state.totalTests === 0 &&
+      state.providerOrder.length === 0
+    ) {
+      init(totalTests, providers, concurrency);
     }
-  }, [totalTests, providers, init]);
+  }, [concurrency, init, providers, state.providerOrder.length, state.totalTests, totalTests]);
 
   // Handle exit during evaluation (cancellation)
   const handleEvalExit = () => {
@@ -155,7 +163,13 @@ function EvalAppInner({
 export function EvalApp(props: EvalAppProps) {
   return (
     <UIProvider>
-      <EvalProvider>
+      <EvalProvider
+        initialState={{
+          totalTests: props.totalTests ?? 0,
+          providers: props.providers ?? [],
+          concurrency: props.concurrency,
+        }}
+      >
         <ErrorBoundary componentName="EvalApp">
           <EvalAppInner {...props} />
         </ErrorBoundary>

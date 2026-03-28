@@ -33,6 +33,8 @@ export interface RedteamGenerateUIResult {
   renderResult: RenderResult;
   /** Controller for sending progress updates */
   controller: RedteamGenerateController;
+  /** Abort signal that fires when the user cancels the Ink session */
+  abortSignal: AbortSignal;
   /** Cleanup function */
   cleanup: () => void;
   /** Wait for user to exit */
@@ -43,8 +45,13 @@ export interface RedteamGenerateUIResult {
  * Initialize the Ink-based redteam generate UI.
  */
 export async function initInkRedteamGenerate(
-  _options: RedteamGenerateRunnerOptions = {},
+  options: RedteamGenerateRunnerOptions = {},
 ): Promise<RedteamGenerateUIResult> {
+  const abortController = new AbortController();
+  const abortSignal = options.abortSignal
+    ? AbortSignal.any([options.abortSignal, abortController.signal])
+    : abortController.signal;
+
   // Dynamic imports to avoid loading ink/React when used as library
   const [React, { renderInteractive }, { RedteamGenerateApp }, { ErrorBoundary }] =
     await Promise.all([
@@ -93,6 +100,7 @@ export async function initInkRedteamGenerate(
       patchConsole: true,
       onSignal: (signal: string) => {
         logger.debug(`Received ${signal} signal - cancelling redteam generate`);
+        abortController.abort();
         controller?.error(`Interrupted by ${signal}`);
         resolveExit();
       },
@@ -111,6 +119,7 @@ export async function initInkRedteamGenerate(
   return {
     renderResult,
     controller: resolvedController,
+    abortSignal,
     cleanup: () => {
       renderResult.cleanup();
     },

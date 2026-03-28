@@ -173,6 +173,7 @@ export class TokenUsageTracker {
    */
   public resetAllUsage(): void {
     this.providersMap.clear();
+    this.labelMap.clear();
   }
 
   /**
@@ -181,6 +182,7 @@ export class TokenUsageTracker {
   public cleanup(): void {
     this.providersMap.clear();
     this.listeners.clear();
+    this.labelMap.clear();
   }
 
   /**

@@ -5,11 +5,18 @@
  * and the React state management in the Ink UI.
  */
 
+import { assignProviderUiKeys, getProviderUiKey } from '../util/providerIdentity';
 import { TokenUsageTracker } from '../util/tokenUsage';
 import { TIMING } from './constants';
 
-import type { EvaluateTable, PromptMetrics, RunEvalOptions } from '../types/index';
+import type {
+  EvalProgressInfo,
+  EvaluateTable,
+  PromptMetrics,
+  RunEvalOptions,
+} from '../types/index';
 import type { EvalAction, LogEntry, SessionPhase, SharingStatus } from './contexts/EvalContext';
+import type { ProviderDefinition, ProviderInput } from './machines/evalMachine';
 
 // ============================================================================
 // Batching Infrastructure
@@ -21,8 +28,10 @@ import type { EvalAction, LogEntry, SessionPhase, SharingStatus } from './contex
  */
 export interface BatchProgressItem {
   provider: string;
-  passed: boolean;
-  error: boolean;
+  providerTotal?: number;
+  passed?: boolean;
+  error?: boolean;
+  outcome?: 'pass' | 'fail' | 'error';
   latencyMs: number;
   cost: number;
   completed: number;
@@ -75,8 +84,10 @@ function createBatchingDispatcher(dispatch: (action: EvalAction) => void) {
           completed: item.completed,
           total: item.total,
           provider: item.provider,
+          providerTotal: item.providerTotal,
           passed: item.passed,
           error: item.error ? 'Test error' : undefined,
+          outcome: item.outcome,
           latencyMs: item.latencyMs,
           cost: item.cost,
         },
@@ -128,17 +139,6 @@ function createBatchingDispatcher(dispatch: (action: EvalAction) => void) {
  */
 interface PromptTrackingState {
   lastMetrics: PromptMetrics | null;
-  lastCallCount: number;
-}
-
-/**
- * State for tracking deltas across all prompts.
- */
-interface ProgressTrackingState {
-  /** Per-prompt tracking state (keyed by providerId:promptIdx) */
-  prompts: Map<string, PromptTrackingState>;
-  /** Total completed count */
-  lastCompleted: number;
 }
 
 /**
@@ -160,12 +160,10 @@ function createProgressCallbackWithBatching(
   index: number,
   evalStep?: RunEvalOptions,
   metrics?: PromptMetrics,
+  progress?: EvalProgressInfo,
 ) => void {
   // Track state between callbacks for delta calculations - PER PROMPT
-  const trackingState: ProgressTrackingState = {
-    prompts: new Map(),
-    lastCompleted: 0,
-  };
+  const promptStateByKey = new Map<string, PromptTrackingState>();
 
   return (
     completed: number,
@@ -173,32 +171,32 @@ function createProgressCallbackWithBatching(
     _index: number,
     evalStep?: RunEvalOptions,
     metrics?: PromptMetrics,
+    progress?: EvalProgressInfo,
   ) => {
     if (!evalStep) {
       // For non-test progress (e.g., comparison steps), dispatch directly
       dispatch({
         type: 'PROGRESS',
-        payload: { completed, total },
+        payload: { completed, total, prompt: progress?.prompt },
       });
       return;
     }
 
-    const providerId = evalStep.provider.label || evalStep.provider.id();
+    const providerId = getProviderUiKey(evalStep.provider);
     const promptIdx = evalStep.promptIdx;
     const trackingKey = `${providerId}:${promptIdx}`;
 
     // Calculate deltas from last callback FOR THIS PROMPT
-    let testPassed = false;
-    let testError = false;
+    let outcome = progress?.outcome;
     let latencyMs = 0;
     let cost = 0;
 
     if (metrics) {
       // Get or create per-prompt tracking state
-      let promptState = trackingState.prompts.get(trackingKey);
+      let promptState = promptStateByKey.get(trackingKey);
       if (!promptState) {
-        promptState = { lastMetrics: null, lastCallCount: 0 };
-        trackingState.prompts.set(trackingKey, promptState);
+        promptState = { lastMetrics: null };
+        promptStateByKey.set(trackingKey, promptState);
       }
 
       const lastMetrics = promptState.lastMetrics;
@@ -216,23 +214,36 @@ function createProgressCallbackWithBatching(
       const deltaLatency = metrics.totalLatencyMs - prevLatency;
       const deltaCost = metrics.cost - prevCost;
 
-      // Determine test result
-      testPassed = deltaPass > 0;
-      const testFailed = deltaFail > 0 && !testPassed;
-      testError = deltaError > 0 && !testPassed && !testFailed;
+      if (!outcome) {
+        // Determine test result from metric deltas when the evaluator did not provide it explicitly.
+        if (deltaPass > 0) {
+          outcome = 'pass';
+        } else if (deltaFail > 0) {
+          outcome = 'fail';
+        } else if (deltaError > 0) {
+          outcome = 'error';
+        } else {
+          // Fallback logic for edge cases
+          const prevTotal = prevPass + prevFail + prevError;
+          const currentTotal =
+            metrics.testPassCount + metrics.testFailCount + metrics.testErrorCount;
+          if (currentTotal > prevTotal) {
+            if (deltaPass >= deltaFail && deltaPass >= deltaError) {
+              outcome = 'pass';
+            } else if (deltaFail >= deltaError) {
+              outcome = 'fail';
+            } else {
+              outcome = 'error';
+            }
+          }
+        }
+      }
 
-      // Fallback logic for edge cases
-      if (!testPassed && !testFailed && !testError) {
+      if (!outcome) {
         const prevTotal = prevPass + prevFail + prevError;
         const currentTotal = metrics.testPassCount + metrics.testFailCount + metrics.testErrorCount;
-        if (currentTotal > prevTotal) {
-          if (deltaPass >= deltaFail && deltaPass >= deltaError) {
-            testPassed = true;
-          } else if (deltaFail >= deltaError) {
-            // testFailed - but we can't set it here, use testPassed=false, testError=false
-          } else {
-            testError = true;
-          }
+        if (currentTotal > prevTotal && deltaError > 0) {
+          outcome = 'error';
         }
       }
 
@@ -241,8 +252,6 @@ function createProgressCallbackWithBatching(
 
       // Update tracking state
       promptState.lastMetrics = { ...metrics };
-      promptState.lastCallCount += 1;
-      trackingState.lastCompleted = completed;
     }
 
     // Grading tokens are still dispatched directly (low frequency, important accuracy)
@@ -266,10 +275,14 @@ function createProgressCallbackWithBatching(
     }
 
     // Queue progress update for batching (instead of direct dispatch)
+    const passed = outcome === 'pass' ? true : outcome ? false : undefined;
+    const error = outcome === 'error' ? true : outcome ? false : undefined;
     queueProgress({
       provider: providerId,
-      passed: testPassed,
-      error: testError,
+      providerTotal: progress?.providerTotal,
+      passed,
+      error,
+      outcome,
       latencyMs,
       cost,
       completed,
@@ -283,9 +296,11 @@ function createProgressCallbackWithBatching(
  */
 export interface EvalUIController {
   /** Initialize the UI with evaluation parameters */
-  init: (totalTests: number, providers: string[], concurrency?: number) => void;
+  init: (totalTests: number, providers: ProviderInput[], concurrency?: number) => void;
   /** Mark evaluation as started */
   start: () => void;
+  /** Transition into the grading/comparison phase */
+  startGrading: (completed: number, total: number) => void;
   /** Update progress */
   progress: (
     completed: number,
@@ -293,6 +308,7 @@ export interface EvalUIController {
     index: number,
     evalStep?: RunEvalOptions,
     metrics?: PromptMetrics,
+    progress?: EvalProgressInfo,
   ) => void;
   /** Add an error */
   addError: (
@@ -339,12 +355,16 @@ export function createEvalUIController(dispatch: React.Dispatch<EvalAction>): Ev
   const progressCallback = createProgressCallbackWithBatching(dispatch, batcher.queueProgress);
 
   return {
-    init: (totalTests: number, providers: string[], concurrency?: number) => {
+    init: (totalTests: number, providers: ProviderInput[], concurrency?: number) => {
       dispatch({ type: 'INIT', payload: { totalTests, providers, concurrency } });
     },
 
     start: () => {
       dispatch({ type: 'START' });
+    },
+
+    startGrading: (completed: number, total: number) => {
+      dispatch({ type: 'START_GRADING', payload: { completed, total } });
     },
 
     progress: progressCallback,
@@ -407,21 +427,63 @@ export function createEvalUIController(dispatch: React.Dispatch<EvalAction>): Ev
  * Also registers the label map on TokenUsageTracker so the UI hook
  * can resolve labeled providers to machine keys.
  */
-export function extractProviderIds(
+export function extractProviderDefinitions(
   providers: Array<{ id: () => string; label?: string }>,
-): string[] {
-  // Build and register label map for token metrics resolution
+): ProviderDefinition[] {
+  const identities = assignProviderUiKeys(providers);
+  const labelCounts = new Map<string, number>();
+  const rawIdCountsByLabel = new Map<string, Map<string, number>>();
+  const rawIdCounts = new Map<string, number>();
+  const ordinalByLabel = new Map<string, number>();
+
+  for (const identity of identities) {
+    labelCounts.set(identity.label, (labelCounts.get(identity.label) ?? 0) + 1);
+    const countsForLabel = rawIdCountsByLabel.get(identity.label) ?? new Map<string, number>();
+    countsForLabel.set(identity.rawId, (countsForLabel.get(identity.rawId) ?? 0) + 1);
+    rawIdCountsByLabel.set(identity.label, countsForLabel);
+    rawIdCounts.set(identity.rawId, (rawIdCounts.get(identity.rawId) ?? 0) + 1);
+  }
+
+  // Build and register label map for token metrics resolution.
+  // Exact per-run keys always resolve to themselves; raw provider IDs only resolve
+  // when they are unique across the current run.
   const labelMap = new Map<string, string>();
-  const keys: string[] = [];
-  for (const p of providers) {
-    const rawId = p.id();
-    const machineKey = p.label || rawId;
-    labelMap.set(rawId, machineKey);
-    keys.push(machineKey);
+  for (const identity of identities) {
+    labelMap.set(identity.key, identity.key);
+    if ((rawIdCounts.get(identity.rawId) ?? 0) === 1) {
+      labelMap.set(identity.rawId, identity.key);
+    }
   }
 
   // Register label map so useTokenMetrics can resolve labeled providers
   TokenUsageTracker.getInstance().setLabelMap(labelMap);
 
-  return keys;
+  return identities.map((identity) => ({
+    id: identity.key,
+    label: (() => {
+      if ((labelCounts.get(identity.label) ?? 0) <= 1) {
+        return identity.label;
+      }
+
+      const rawIdCounts = rawIdCountsByLabel.get(identity.label);
+      if ((rawIdCounts?.get(identity.rawId) ?? 0) === 1 && identity.rawId !== identity.label) {
+        return `${identity.label} (${identity.rawId})`;
+      }
+
+      const ordinal = (ordinalByLabel.get(identity.label) ?? 0) + 1;
+      ordinalByLabel.set(identity.label, ordinal);
+      return `${identity.label} (${ordinal})`;
+    })(),
+  }));
+}
+
+/**
+ * Extract provider IDs from evaluate options and test suite.
+ * Also registers the label map on TokenUsageTracker so the UI hook
+ * can resolve labeled providers to machine keys.
+ */
+export function extractProviderIds(
+  providers: Array<{ id: () => string; label?: string }>,
+): string[] {
+  return extractProviderDefinitions(providers).map((provider) => provider.id);
 }

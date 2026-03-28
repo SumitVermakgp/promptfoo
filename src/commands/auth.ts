@@ -4,6 +4,7 @@ import dedent from 'dedent';
 import { isNonInteractive } from '../envars';
 import { getUserEmail, setUserEmail } from '../globalConfig/accounts';
 import { cloudConfig } from '../globalConfig/cloud';
+import { readGlobalConfig, writeGlobalConfig } from '../globalConfig/globalConfig';
 import logger from '../logger';
 import { AUTH_CANCELLED, initInkAuth, shouldUseInkAuth, type TeamInfo } from '../ui/auth';
 import {
@@ -16,6 +17,8 @@ import {
 import { fetchWithProxy } from '../util/fetch/index';
 import { BrowserBehavior, openAuthBrowser } from '../util/server';
 import type { Command } from 'commander';
+
+import type { GlobalConfig } from '../configTypes';
 
 /**
  * Core login logic: validates API key, syncs email, sets org, and resolves team.
@@ -73,6 +76,11 @@ async function performApiKeyLogin(
   return { user, organization, allTeams, selectedTeam };
 }
 
+function restoreGlobalConfigSnapshot(snapshot: GlobalConfig): void {
+  writeGlobalConfig(snapshot);
+  (cloudConfig as unknown as { reload: () => void }).reload();
+}
+
 export function authCommand(program: Command) {
   const authCommand = program.command('auth').description('Manage authentication');
 
@@ -111,6 +119,8 @@ export function authCommand(program: Command) {
             if (useInkUI) {
               // Use Ink UI for API key login
               const authUI = await initInkAuth({ initialPhase: 'logging_in' });
+              const globalConfigSnapshot = structuredClone(readGlobalConfig());
+              let loginCommitted = false;
 
               // Suppress unhandled rejection on teamSelection if we never await it
               // (e.g., single-team path or ErrorBoundary crash)
@@ -140,6 +150,7 @@ export function authCommand(program: Command) {
                   const selectedTeam = await authUI.teamSelection;
                   if (selectedTeam === AUTH_CANCELLED) {
                     // Ctrl+C: abort login entirely
+                    restoreGlobalConfigSnapshot(globalConfigSnapshot);
                     logger.info('Login cancelled.');
                     return;
                   } else if (selectedTeam) {
@@ -160,10 +171,14 @@ export function authCommand(program: Command) {
                   team: selectedTeamName,
                   appUrl: cloudConfig.getAppUrl(),
                 });
+                loginCommitted = true;
 
                 // Wait for user to acknowledge
                 await authUI.result;
               } catch (error) {
+                if (!loginCommitted) {
+                  restoreGlobalConfigSnapshot(globalConfigSnapshot);
+                }
                 authUI.controller.error(error instanceof Error ? error.message : String(error));
                 await authUI.result;
                 process.exitCode = 1;

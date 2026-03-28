@@ -342,4 +342,25 @@ describe('navigationReducer', () => {
       expect(leftResult.selectedCol).toBe(4); // Wrapped to last column
     });
   });
+
+  describe('search actions', () => {
+    it('normalizes blank searches to null when applying the filter', () => {
+      const state = createNavigationState({
+        filter: {
+          mode: 'all',
+          searchQuery: '   ',
+          isSearching: true,
+          columnFilters: [],
+          isCommandMode: false,
+          commandInput: '',
+          commandError: null,
+        },
+      });
+
+      const result = navigationReducer(state, { type: 'APPLY_SEARCH' }, defaultBounds);
+
+      expect(result.filter.searchQuery).toBeNull();
+      expect(result.filter.isSearching).toBe(false);
+    });
+  });
 });

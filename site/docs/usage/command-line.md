@@ -99,6 +99,7 @@ By default the `eval` command will read the `promptfooconfig.yaml` configuration
 | `-j, --max-concurrency <number>`    | Maximum number of concurrent API calls                                                                   |
 | `--model-outputs <path>`            | Path to JSON containing list of LLM output strings                                                       |
 | `--no-cache`                        | Do not read or write results to disk cache                                                               |
+| `--no-interactive`                  | Force classic CLI output even when the Ink UI is enabled                                                 |
 | `--no-progress-bar`                 | Do not show progress bar                                                                                 |
 | `--no-table`                        | Do not output table in CLI                                                                               |
 | `--no-write`                        | Do not write results to promptfoo directory                                                              |
@@ -122,6 +123,8 @@ By default the `eval` command will read the `promptfooconfig.yaml` configuration
 | `-w, --watch`                       | Watch for changes in config and re-run                                                                   |
 
 The `eval` command will return exit code `100` when there is at least 1 test case failure or when the pass rate is below the threshold set by `PROMPTFOO_PASS_RATE_THRESHOLD`. It will return exit code `1` for any other error. The exit code for failed tests can be overridden with environment variable `PROMPTFOO_FAILED_TEST_EXIT_CODE`.
+
+When `PROMPTFOO_ENABLE_INTERACTIVE_UI=true` and stdout is a TTY, `promptfoo eval` can render an interactive Ink UI with live progress and an in-terminal results browser. Use `--no-interactive` or `PROMPTFOO_DISABLE_INTERACTIVE_UI=true` to force classic output. `PROMPTFOO_FORCE_INTERACTIVE_UI=true` bypasses the opt-in check for debugging, but still requires a TTY.
 
 ### Pause and Resume
 

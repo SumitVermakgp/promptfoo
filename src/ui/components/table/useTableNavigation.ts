@@ -348,14 +348,22 @@ export function navigationReducer(
         filter: { ...state.filter, searchQuery: action.query },
       };
 
-    case 'APPLY_SEARCH':
+    case 'APPLY_SEARCH': {
       // Apply search and reset selection
+      const normalizedSearchQuery = state.filter.searchQuery?.trim()
+        ? state.filter.searchQuery
+        : null;
       return {
         ...state,
         selectedRow: 0,
         scrollOffset: 0,
-        filter: { ...state.filter, isSearching: false },
+        filter: {
+          ...state.filter,
+          isSearching: false,
+          searchQuery: normalizedSearchQuery,
+        },
       };
+    }
 
     case 'CANCEL_SEARCH':
       // Cancel without applying - restore previous query

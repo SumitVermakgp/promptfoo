@@ -12,6 +12,8 @@ import { ProgressBar } from '../components/shared/ProgressBar';
 import { Spinner } from '../components/shared/Spinner';
 import { copyToClipboard, isClipboardAvailable } from '../utils/clipboard';
 
+import type { ShareContext } from '../types';
+
 export type SharePhase =
   | 'confirming'
   | 'preparing'
@@ -47,6 +49,8 @@ export interface ShareAppProps {
   resultCount?: number;
   /** Whether to skip confirmation */
   skipConfirmation?: boolean;
+  /** Sharing destination context */
+  shareContext?: ShareContext | null;
   /** Called when sharing is confirmed */
   onConfirm?: () => void;
   /** Called when sharing is cancelled */
@@ -64,6 +68,7 @@ export function ShareApp({
   description,
   resultCount,
   skipConfirmation = false,
+  shareContext,
   onConfirm,
   onCancel,
   onComplete,
@@ -159,6 +164,16 @@ export function ShareApp({
           Share Evaluation
         </Text>
       </Box>
+
+      {shareContext && (
+        <Box marginBottom={1}>
+          <Text dimColor>Sharing to: </Text>
+          <Text color="cyan">
+            {shareContext.organizationName}
+            {shareContext.teamName ? ` > ${shareContext.teamName}` : ''}
+          </Text>
+        </Box>
+      )}
 
       {/* Eval info */}
       <Box marginBottom={1} flexDirection="column">

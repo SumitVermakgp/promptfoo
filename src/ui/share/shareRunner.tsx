@@ -10,6 +10,7 @@ import { initInkApp } from '../initInkApp';
 export { shouldUseInkUI as shouldUseInkShare } from '../interactiveCheck';
 
 import type { RenderResult } from '../render';
+import type { ShareContext } from '../types';
 import type { ShareController } from './ShareApp';
 
 export interface ShareRunnerOptions {
@@ -21,6 +22,8 @@ export interface ShareRunnerOptions {
   resultCount?: number;
   /** Skip confirmation prompt */
   skipConfirmation?: boolean;
+  /** Sharing destination context */
+  shareContext?: ShareContext | null;
 }
 
 export interface ShareUIResult {
@@ -62,6 +65,7 @@ export async function initInkShare(options: ShareRunnerOptions): Promise<ShareUI
         description: options.description,
         resultCount: options.resultCount,
         skipConfirmation: options.skipConfirmation,
+        shareContext: options.shareContext,
         onConfirm: () => {
           resolvers.confirmation(true);
         },

@@ -79,26 +79,8 @@ export function cacheCommand(program: Command) {
     .description('Clear cache')
     .option('--env-file, --env-path <path>', 'Path to .env file')
     .option('--no-interactive', 'Disable interactive UI')
-    .action(async (cmdObj: { envPath?: string; interactive: boolean }) => {
+    .action(async (cmdObj: { envPath?: string }) => {
       setupEnv(cmdObj.envPath);
-
-      // Use Ink UI by default (unless --no-interactive is specified)
-      if (cmdObj.interactive && shouldUseInkCache()) {
-        try {
-          await runInkCache({
-            getStats: getCacheStats,
-            clearCache: async () => {
-              await clearCache();
-            },
-          });
-          return;
-        } catch (error) {
-          logger.debug(
-            `Ink cache clear failed, falling back: ${error instanceof Error ? error.message : error}`,
-          );
-          // Fall through to non-interactive clear
-        }
-      }
 
       logger.info('Clearing cache...');
 

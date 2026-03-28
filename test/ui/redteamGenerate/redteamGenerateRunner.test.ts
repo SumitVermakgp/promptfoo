@@ -69,4 +69,45 @@ describe('redteamGenerateRunner', () => {
       expect(shouldUseInkRedteamGenerate()).toBe(true);
     });
   });
+
+  describe('initInkRedteamGenerate', () => {
+    it('aborts the returned signal when the Ink session receives SIGINT', async () => {
+      const { renderInteractive } = await import('../../../src/ui/render');
+      let capturedOnSignal: ((signal: string) => void) | undefined;
+      const mockController = {
+        startPlugins: vi.fn(),
+        updatePlugin: vi.fn(),
+        startStrategies: vi.fn(),
+        updateStrategy: vi.fn(),
+        complete: vi.fn(),
+        error: vi.fn(),
+      };
+
+      vi.mocked(renderInteractive).mockImplementationOnce(async (element, options: any) => {
+        capturedOnSignal = options.onSignal;
+        const appProps = (element as any)?.props?.children?.props;
+        appProps?.onController?.(mockController);
+        return {
+          cleanup: vi.fn(),
+          clear: vi.fn(),
+          unmount: vi.fn(),
+          rerender: vi.fn(),
+          waitUntilExit: vi.fn().mockResolvedValue(undefined),
+          frames: [],
+          lastFrame: vi.fn(),
+          instance: {},
+        } as any;
+      });
+
+      const { initInkRedteamGenerate } = await import(
+        '../../../src/ui/redteamGenerate/redteamGenerateRunner'
+      );
+      const result = await initInkRedteamGenerate();
+
+      expect(result.abortSignal.aborted).toBe(false);
+      capturedOnSignal?.('SIGINT');
+      expect(result.abortSignal.aborted).toBe(true);
+      expect(mockController.error).toHaveBeenCalledWith('Interrupted by SIGINT');
+    });
+  });
 });

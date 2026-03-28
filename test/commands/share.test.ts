@@ -14,6 +14,7 @@ import ModelAudit from '../../src/models/modelAudit';
 import {
   createShareableModelAuditUrl,
   createShareableUrl,
+  ensureShareAuthorEmail,
   getShareableModelAuditUrl,
   getShareableUrl,
   hasEvalBeenShared,
@@ -21,6 +22,8 @@ import {
   isModelAuditSharingEnabled,
   isSharingEnabled,
 } from '../../src/share';
+import { initInkShare, shouldUseInkShare } from '../../src/ui/share';
+import { getOrgContext } from '../../src/util/cloud';
 import { loadDefaultConfig } from '../../src/util/config/default';
 
 vi.mock('../../src/share');
@@ -39,12 +42,17 @@ vi.mock('../../src/globalConfig/cloud');
 vi.mock('readline');
 vi.mock('../../src/models/eval');
 vi.mock('../../src/models/modelAudit');
+vi.mock('../../src/ui/share');
 vi.mock('../../src/util', async (importOriginal) => {
   return {
     ...(await importOriginal()),
     setupEnv: vi.fn(),
   };
 });
+vi.mock('../../src/util/cloud', async () => ({
+  ...(await vi.importActual('../../src/util/cloud')),
+  getOrgContext: vi.fn(),
+}));
 vi.mock('../../src/util/config/default');
 
 describe('Share Command', () => {
@@ -176,6 +184,8 @@ describe('Share Command', () => {
       vi.mocked(getShareableUrl).mockReset();
       vi.mocked(getShareableModelAuditUrl).mockReset();
       vi.mocked(envars.isNonInteractive).mockReset();
+      vi.mocked(shouldUseInkShare).mockReset();
+      vi.mocked(getOrgContext).mockReset();
       program = new Command();
       shareCommand(program);
     });
@@ -238,6 +248,99 @@ describe('Share Command', () => {
       expect(Eval.findById).toHaveBeenCalledWith('eval-test-123');
       expect(createShareableUrl).toHaveBeenCalledWith(mockEval, { showAuth: false });
       expect(logger.info).toHaveBeenCalledWith(expect.stringContaining('View results:'));
+    });
+
+    it('should preserve email collection and share context in interactive Ink mode', async () => {
+      const mockEval = {
+        id: 'eval-test-123',
+        prompts: ['test'],
+        config: {},
+        results: [{ id: 'result-1' }],
+      } as unknown as Eval;
+      const waitUntilExit = vi.fn().mockResolvedValue(undefined);
+
+      vi.spyOn(Eval, 'findById').mockResolvedValue(mockEval);
+      vi.mocked(loadDefaultConfig).mockResolvedValue({ defaultConfig: undefined } as any);
+      vi.mocked(isSharingEnabled).mockImplementation(() => true);
+      vi.mocked(cloudConfig.isEnabled).mockReturnValue(false);
+      vi.mocked(shouldUseInkShare).mockReturnValue(true);
+      vi.mocked(getOrgContext).mockResolvedValue({
+        organizationName: 'Promptfoo',
+        teamName: 'Security',
+      });
+      vi.mocked(ensureShareAuthorEmail).mockResolvedValue(undefined);
+      vi.mocked(createShareableUrl).mockResolvedValue('https://example.com/eval/eval-test-123');
+      vi.mocked(initInkShare).mockResolvedValue({
+        controller: {
+          setPhase: vi.fn(),
+          setProgress: vi.fn(),
+          complete: vi.fn(),
+          error: vi.fn(),
+        },
+        cleanup: vi.fn(),
+        confirmation: Promise.resolve(true),
+        result: Promise.resolve('https://example.com/eval/eval-test-123'),
+        renderResult: { waitUntilExit } as any,
+      } as any);
+
+      const shareCmd = program.commands.find((c) => c.name() === 'share');
+      await shareCmd?.parseAsync(['node', 'test', 'eval-test-123']);
+
+      expect(ensureShareAuthorEmail).toHaveBeenCalledWith(mockEval);
+      expect(initInkShare).toHaveBeenCalledWith({
+        evalId: 'eval-test-123',
+        description: undefined,
+        resultCount: 1,
+        skipConfirmation: false,
+        shareContext: {
+          organizationName: 'Promptfoo',
+          teamName: 'Security',
+        },
+      });
+      expect(createShareableUrl).toHaveBeenCalledWith(mockEval, {
+        showAuth: false,
+        silent: true,
+      });
+      expect(waitUntilExit).not.toHaveBeenCalled();
+    });
+
+    it('should keep the Ink error state mounted until dismissal', async () => {
+      const mockEval = {
+        id: 'eval-test-123',
+        prompts: ['test'],
+        config: {},
+        results: [{ id: 'result-1' }],
+      } as unknown as Eval;
+      const waitUntilExit = vi.fn().mockResolvedValue(undefined);
+      const controller = {
+        setPhase: vi.fn(),
+        setProgress: vi.fn(),
+        complete: vi.fn(),
+        error: vi.fn(),
+      };
+
+      vi.spyOn(Eval, 'findById').mockResolvedValue(mockEval);
+      vi.mocked(loadDefaultConfig).mockResolvedValue({ defaultConfig: undefined } as any);
+      vi.mocked(isSharingEnabled).mockImplementation(() => true);
+      vi.mocked(cloudConfig.isEnabled).mockReturnValue(false);
+      vi.mocked(shouldUseInkShare).mockReturnValue(true);
+      vi.mocked(getOrgContext).mockResolvedValue(null);
+      vi.mocked(ensureShareAuthorEmail).mockResolvedValue(undefined);
+      vi.mocked(createShareableUrl).mockRejectedValue(new Error('upload failed'));
+      vi.mocked(initInkShare).mockResolvedValue({
+        controller,
+        cleanup: vi.fn(),
+        confirmation: Promise.resolve(true),
+        result: Promise.resolve(undefined),
+        renderResult: { waitUntilExit } as any,
+      } as any);
+
+      const shareCmd = program.commands.find((c) => c.name() === 'share');
+      await shareCmd?.parseAsync(['node', 'test', 'eval-test-123']);
+
+      expect(controller.error).toHaveBeenCalledWith('upload failed');
+      expect(waitUntilExit).toHaveBeenCalled();
+      expect(process.exitCode).toBe(1);
     });
 
     it('should share most recent model audit when it is newer than eval', async () => {

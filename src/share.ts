@@ -537,7 +537,7 @@ export function stripAuthFromUrl(urlString: string): string {
   }
 }
 
-async function handleEmailCollection(evalRecord: Eval): Promise<void> {
+export async function ensureShareAuthorEmail(evalRecord: Eval): Promise<void> {
   if (!process.stdout.isTTY || isCI() || getEnvBool('PROMPTFOO_DISABLE_SHARE_EMAIL_REQUEST')) {
     return;
   }
@@ -632,7 +632,7 @@ export async function createShareableUrl(
 
   // 1. Handle email collection (skip when silent - background sharing)
   if (!silent) {
-    await handleEmailCollection(evalRecord);
+    await ensureShareAuthorEmail(evalRecord);
   }
 
   // 2. Get API configuration

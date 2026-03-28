@@ -10,6 +10,7 @@ import ModelAudit from '../models/modelAudit';
 import {
   createShareableModelAuditUrl,
   createShareableUrl,
+  ensureShareAuthorEmail,
   getShareableModelAuditUrl,
   getShareableUrl,
   hasEvalBeenShared,
@@ -18,6 +19,7 @@ import {
   isSharingEnabled,
 } from '../share';
 import { initInkShare, shouldUseInkShare } from '../ui/share';
+import { getOrgContext } from '../util/cloud';
 import { loadDefaultConfig } from '../util/config/default';
 import type { Command } from 'commander';
 
@@ -225,14 +227,17 @@ export function shareCommand(program: Command) {
           // Use interactive UI by default (unless --no-interactive is specified)
           if (cmdObj.interactive && shouldUseInkShare()) {
             const resultCount = eval_.results?.length;
+            const shareContext = await getOrgContext();
 
             let shareUI;
             try {
+              await ensureShareAuthorEmail(eval_);
               shareUI = await initInkShare({
                 evalId: eval_.id,
                 description: eval_.config.description,
                 resultCount,
                 skipConfirmation: false,
+                shareContext,
               });
               // Wait for confirmation
               const confirmed = await shareUI.confirmation;
@@ -254,14 +259,23 @@ export function shareCommand(program: Command) {
                   await shareUI.result;
                 } else {
                   shareUI.controller.error('Failed to create shareable URL');
+                  await shareUI.renderResult.waitUntilExit();
                   process.exitCode = 1;
                 }
               } catch (err) {
                 shareUI.controller.error((err as Error).message);
+                await shareUI.renderResult.waitUntilExit();
                 process.exitCode = 1;
               }
               return;
             } catch (uiError) {
+              if (
+                uiError instanceof Error &&
+                (uiError.name === 'AbortPromptError' || uiError.name === 'ExitPromptError')
+              ) {
+                process.exitCode = 0;
+                return;
+              }
               // Ink UI crashed - fall through to non-interactive share
               logger.debug(
                 `Ink share UI failed, falling back: ${uiError instanceof Error ? uiError.message : uiError}`,

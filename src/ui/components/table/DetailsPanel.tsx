@@ -92,6 +92,32 @@ function SectionHeader({
   );
 }
 
+function getContentBoxWidth(width: number): number {
+  return Math.max(10, Math.min(width - 6, 80));
+}
+
+function getContentInnerWidth(width: number): number {
+  return Math.max(1, getContentBoxWidth(width) - 4);
+}
+
+function wrapContentLines(content: string, lineWidth: number): string[] {
+  const lines = content.split('\n');
+  const wrappedLines: string[] = [];
+
+  for (const line of lines) {
+    if (line === '') {
+      wrappedLines.push('');
+      continue;
+    }
+
+    for (let offset = 0; offset < line.length; offset += lineWidth) {
+      wrappedLines.push(line.slice(offset, offset + lineWidth));
+    }
+  }
+
+  return wrappedLines;
+}
+
 /**
  * Content box for scrollable sections.
  */
@@ -106,7 +132,8 @@ function ContentBox({
   scrollOffset: number;
   width: number;
 }) {
-  const lines = content.split('\n');
+  const boxWidth = getContentBoxWidth(width);
+  const lines = wrapContentLines(content, getContentInnerWidth(width));
   const totalLines = lines.length;
   const visibleLines = lines.slice(scrollOffset, scrollOffset + maxLines);
   const hasMoreAbove = scrollOffset > 0;
@@ -118,7 +145,7 @@ function ContentBox({
         borderStyle="single"
         borderColor="gray"
         paddingX={1}
-        width={Math.max(10, Math.min(width - 6, 80))}
+        width={boxWidth}
         flexDirection="column"
       >
         {visibleLines.length === 0 ? (
@@ -468,7 +495,7 @@ export function DetailsPanel({
   const scrollSection = useCallback(
     (direction: 'up' | 'down') => {
       const content = getSectionContent(activeSection);
-      const lineCount = content.split('\n').length;
+      const lineCount = wrapContentLines(content, getContentInnerWidth(contentWidth)).length;
       const maxOffset = Math.max(0, lineCount - maxContentLines);
 
       setScrollOffsets((prev) => {
@@ -480,7 +507,7 @@ export function DetailsPanel({
         return { ...prev, [activeSection]: newOffset };
       });
     },
-    [activeSection, getSectionContent, maxContentLines],
+    [activeSection, contentWidth, getSectionContent, maxContentLines],
   );
 
   // Handle copying (async to avoid blocking UI)

@@ -376,6 +376,39 @@ const PHASE_LABELS: Record<string, string> = {
   error: 'Error',
 };
 
+type DisplayPhase = keyof typeof PHASE_LABELS;
+type DisplayPhaseState = {
+  phase: DisplayPhase;
+  completedTests: number;
+  totalTests: number;
+  providers: Record<string, { testCases: { completed: number; total: number } }>;
+};
+
+export function getDisplayPhase(state: DisplayPhaseState): DisplayPhase {
+  if (state.phase !== 'evaluating') {
+    return state.phase;
+  }
+
+  const providerTotals = Object.values(state.providers).reduce(
+    (totals, provider) => {
+      totals.completed += provider.testCases.completed;
+      totals.total += provider.testCases.total;
+      return totals;
+    },
+    { completed: 0, total: 0 },
+  );
+
+  if (
+    providerTotals.total > 0 &&
+    providerTotals.completed >= providerTotals.total &&
+    state.completedTests < state.totalTests
+  ) {
+    return 'grading';
+  }
+
+  return state.phase;
+}
+
 /**
  * Organization/team label used in share status display.
  */
@@ -536,6 +569,8 @@ export function EvalScreen({
   );
 
   // Compute terminal title - null when not actively evaluating
+  const displayPhase = getDisplayPhase(state);
+
   const terminalTitle = (() => {
     if (state.phase !== 'evaluating' && state.phase !== 'grading') {
       return null;
@@ -575,7 +610,7 @@ export function EvalScreen({
         {isRunning && <Spinner type="dots" color="cyan" />}
         <Text color={isComplete ? 'green' : 'cyan'}>
           {' '}
-          {PHASE_LABELS[state.phase] || state.phase}
+          {PHASE_LABELS[displayPhase] || displayPhase}
         </Text>
         {state.elapsedMs > 0 && <Text dimColor> ({formatDuration(state.elapsedMs)})</Text>}
         {state.concurrency > 1 && <Text dimColor> ×{state.concurrency}</Text>}

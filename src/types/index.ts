@@ -211,6 +211,37 @@ export interface RunEvalOptions {
   rateLimitRegistry?: RateLimitRegistryRef;
 }
 
+export interface EvalProgressInfo {
+  outcome?: 'pass' | 'fail' | 'error';
+  providerTotal?: number;
+  prompt?: string;
+}
+
+export interface EvalPlanInfo {
+  evalCount: number;
+  comparisonCount: number;
+  totalCount: number;
+  providerTotals: Record<string, number>;
+  concurrency: number;
+}
+
+export type EvalProgressEvent =
+  | {
+      type: 'grading-start';
+      completed: number;
+      total: number;
+      comparisonCompleted: number;
+      comparisonTotal: number;
+    }
+  | {
+      type: 'grading-progress';
+      completed: number;
+      total: number;
+      comparisonCompleted: number;
+      comparisonTotal: number;
+      prompt?: string;
+    };
+
 export const EvaluateOptionsSchema = z.object({
   cache: z.boolean().optional(),
   delay: z.number().optional(),
@@ -231,6 +262,7 @@ export const EvaluateOptionsSchema = z.object({
         index: number,
         evalStep?: RunEvalOptions,
         metrics?: PromptMetrics,
+        progress?: EvalProgressInfo,
       ) => void
     >((v) => typeof v === 'function')
     .optional(),
@@ -260,7 +292,11 @@ export const EvaluateOptionsSchema = z.object({
    */
   suppressInfoLogs: z.boolean().optional(),
 });
-export type EvaluateOptions = z.infer<typeof EvaluateOptionsSchema> & { abortSignal?: AbortSignal };
+export type EvaluateOptions = z.infer<typeof EvaluateOptionsSchema> & {
+  abortSignal?: AbortSignal;
+  onPlan?: (plan: EvalPlanInfo) => void | Promise<void>;
+  progressEventCallback?: (event: EvalProgressEvent) => void | Promise<void>;
+};
 
 const PromptMetricsSchema = z.object({
   score: z.number(),

@@ -1,6 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { TIMING } from '../../src/ui/constants';
-import { createEvalUIController, extractProviderIds } from '../../src/ui/evalBridge';
+import {
+  createEvalUIController,
+  extractProviderDefinitions,
+  extractProviderIds,
+} from '../../src/ui/evalBridge';
+import { TokenUsageTracker } from '../../src/util/tokenUsage';
 import type { Mock } from 'vitest';
 
 import type { PromptMetrics, RunEvalOptions } from '../../src/types';
@@ -15,6 +20,7 @@ describe('evalBridge', () => {
   afterEach(() => {
     vi.useRealTimers();
     vi.clearAllMocks();
+    TokenUsageTracker.getInstance().cleanup();
   });
 
   describe('batching behavior (via createEvalUIController)', () => {
@@ -55,6 +61,57 @@ describe('evalBridge', () => {
 
       // First item should be dispatched immediately
       expect(dispatch).toHaveBeenCalled();
+    });
+
+    it('should forward explicit outcome metadata on the immediate dispatch path', () => {
+      const provider = {
+        id: () => 'openai:gpt-4',
+        label: undefined,
+      };
+
+      const evalStep: RunEvalOptions = {
+        provider: provider as any,
+        prompt: { raw: 'Test prompt' },
+        test: { vars: {} },
+        promptIdx: 0,
+      } as any;
+
+      const metrics: PromptMetrics = {
+        testPassCount: 1,
+        testFailCount: 0,
+        testErrorCount: 0,
+        totalLatencyMs: 100,
+        cost: 0.01,
+      } as any;
+
+      controller.progress(1, 3, 0, evalStep, metrics, {
+        outcome: 'pass',
+        providerTotal: 3,
+      });
+
+      expect(dispatch).toHaveBeenCalledWith({
+        type: 'PROGRESS',
+        payload: {
+          completed: 1,
+          total: 3,
+          provider: 'openai:gpt-4',
+          providerTotal: 3,
+          passed: true,
+          error: undefined,
+          outcome: 'pass',
+          latencyMs: 100,
+          cost: 0.01,
+        },
+      });
+    });
+
+    it('should forward prompt metadata for non-test grading progress updates', () => {
+      controller.progress(4, 4, 0, undefined, undefined, { prompt: 'Prompt A' });
+
+      expect(dispatch).toHaveBeenCalledWith({
+        type: 'PROGRESS',
+        payload: { completed: 4, total: 4, prompt: 'Prompt A' },
+      });
     });
 
     it('should queue subsequent progress items without immediate dispatch', () => {
@@ -312,6 +369,149 @@ describe('evalBridge', () => {
       );
       expect(batchDispatches.length).toBeGreaterThan(0);
     });
+
+    it('should preserve explicit outcomes even when metrics do not change', () => {
+      const provider = {
+        id: () => 'openai:gpt-4',
+        label: undefined,
+      };
+
+      const evalStep: RunEvalOptions = {
+        provider: provider as any,
+        prompt: { raw: 'Test prompt' },
+        test: { vars: {} },
+        promptIdx: 0,
+      } as any;
+
+      const metrics: PromptMetrics = {
+        testPassCount: 1,
+        testFailCount: 0,
+        testErrorCount: 0,
+        totalLatencyMs: 100,
+        cost: 0.01,
+      } as any;
+
+      controller.progress(1, 3, 0, evalStep, metrics, {
+        outcome: 'pass',
+        providerTotal: 3,
+      });
+      dispatch.mockClear();
+
+      // Re-use the same cumulative metrics to simulate out-of-order callbacks.
+      controller.progress(2, 3, 1, evalStep, metrics, {
+        outcome: 'fail',
+        providerTotal: 3,
+      });
+
+      vi.advanceTimersByTime(TIMING.BATCH_INTERVAL_MS);
+
+      expect(dispatch).toHaveBeenCalledWith({
+        type: 'BATCH_PROGRESS',
+        payload: {
+          items: [
+            {
+              provider: 'openai:gpt-4',
+              providerTotal: 3,
+              passed: false,
+              error: false,
+              outcome: 'fail',
+              latencyMs: 0,
+              cost: 0,
+              completed: 2,
+              total: 3,
+            },
+          ],
+        },
+      });
+    });
+
+    it('should not synthesize failures when cumulative metrics do not advance and no outcome is provided', () => {
+      const provider = {
+        id: () => 'openai:gpt-4',
+        label: undefined,
+      };
+
+      const evalStep: RunEvalOptions = {
+        provider: provider as any,
+        prompt: { raw: 'Test prompt' },
+        test: { vars: {} },
+        promptIdx: 0,
+      } as any;
+
+      const metrics: PromptMetrics = {
+        testPassCount: 1,
+        testFailCount: 0,
+        testErrorCount: 0,
+        totalLatencyMs: 100,
+        cost: 0.01,
+      } as any;
+
+      controller.progress(1, 3, 0, evalStep, metrics);
+      dispatch.mockClear();
+
+      controller.progress(2, 3, 1, evalStep, metrics);
+
+      vi.advanceTimersByTime(TIMING.BATCH_INTERVAL_MS);
+
+      const batchAction = dispatch.mock.calls[0]?.[0] as Extract<
+        EvalAction,
+        { type: 'BATCH_PROGRESS' }
+      >;
+      expect(batchAction.type).toBe('BATCH_PROGRESS');
+      expect(batchAction.payload.items[0]).toMatchObject({
+        provider: 'openai:gpt-4',
+        completed: 2,
+        total: 3,
+        latencyMs: 0,
+        cost: 0,
+      });
+      expect(batchAction.payload.items[0].outcome).toBeUndefined();
+      expect(batchAction.payload.items[0].passed).toBeUndefined();
+      expect(batchAction.payload.items[0].error).toBeUndefined();
+    });
+  });
+
+  describe('extractProviderDefinitions', () => {
+    it('should return stable unique IDs while disambiguating duplicate labels', () => {
+      const providers = [
+        { id: () => 'openai:gpt-4', label: 'GPT-4' },
+        { id: () => 'openai:gpt-4', label: 'GPT-4' },
+      ];
+
+      const definitions = extractProviderDefinitions(providers);
+
+      expect(definitions).toEqual([
+        { id: 'openai:gpt-4#0', label: 'GPT-4 (1)' },
+        { id: 'openai:gpt-4#1', label: 'GPT-4 (2)' },
+      ]);
+    });
+
+    it('should use raw ids to disambiguate duplicate labels when they are unique', () => {
+      const providers = [
+        { id: () => 'dup-a', label: 'duplicate' },
+        { id: () => 'dup-b', label: 'duplicate' },
+      ];
+
+      const definitions = extractProviderDefinitions(providers);
+
+      expect(definitions).toEqual([
+        { id: 'dup-a#0', label: 'duplicate (dup-a)' },
+        { id: 'dup-b#1', label: 'duplicate (dup-b)' },
+      ]);
+    });
+
+    it('should keep duplicate raw ids mapped to their exact UI keys for token attribution', () => {
+      const providers = [
+        { id: () => 'openai:gpt-4', label: 'GPT-4' },
+        { id: () => 'openai:gpt-4', label: 'GPT-4' },
+      ];
+
+      extractProviderDefinitions(providers);
+      const tracker = TokenUsageTracker.getInstance();
+
+      expect(tracker.resolveLabel('openai:gpt-4#0 (OpenAiProvider)')).toBe('openai:gpt-4#0');
+      expect(tracker.resolveLabel('openai:gpt-4#1 (OpenAiProvider)')).toBe('openai:gpt-4#1');
+    });
   });
 
   describe('extractProviderIds', () => {
@@ -323,7 +523,7 @@ describe('evalBridge', () => {
 
       const ids = extractProviderIds(providers);
 
-      expect(ids).toEqual(['openai:gpt-4', 'anthropic:claude-3']);
+      expect(ids).toEqual(['openai:gpt-4#0', 'anthropic:claude-3#1']);
     });
 
     it('should prefer label over id() when label is present', () => {
@@ -334,7 +534,7 @@ describe('evalBridge', () => {
 
       const ids = extractProviderIds(providers);
 
-      expect(ids).toEqual(['GPT-4 Production', 'Claude Dev']);
+      expect(ids).toEqual(['openai:gpt-4#0', 'anthropic:claude-3#1']);
     });
 
     it('should handle mix of labeled and unlabeled providers', () => {
@@ -346,7 +546,7 @@ describe('evalBridge', () => {
 
       const ids = extractProviderIds(providers);
 
-      expect(ids).toEqual(['GPT-4 Production', 'anthropic:claude-3', 'Gemini']);
+      expect(ids).toEqual(['openai:gpt-4#0', 'anthropic:claude-3#1', 'gemini:pro#2']);
     });
 
     it('should handle empty provider array', () => {
@@ -374,6 +574,7 @@ describe('evalBridge', () => {
     it('should create controller with all methods', () => {
       expect(controller.init).toBeDefined();
       expect(controller.start).toBeDefined();
+      expect(controller.startGrading).toBeDefined();
       expect(controller.progress).toBeDefined();
       expect(controller.addError).toBeDefined();
       expect(controller.addLog).toBeDefined();
@@ -404,6 +605,15 @@ describe('evalBridge', () => {
       controller.start();
 
       expect(dispatch).toHaveBeenCalledWith({ type: 'START' });
+    });
+
+    it('should dispatch START_GRADING action', () => {
+      controller.startGrading(3, 4);
+
+      expect(dispatch).toHaveBeenCalledWith({
+        type: 'START_GRADING',
+        payload: { completed: 3, total: 4 },
+      });
     });
 
     it('should dispatch ADD_ERROR action', () => {

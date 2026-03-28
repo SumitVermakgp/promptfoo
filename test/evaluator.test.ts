@@ -4,7 +4,7 @@ import fs from 'fs';
 import { glob } from 'glob';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import cliState from '../src/cliState';
-import { FILE_METADATA_KEY } from '../src/constants';
+import { DEFAULT_MAX_CONCURRENCY, FILE_METADATA_KEY } from '../src/constants';
 import {
   evaluate,
   formatVarsForDisplay,
@@ -2065,6 +2065,91 @@ describe('evaluator', () => {
     expect(metrics1!.namedScores.MAPE).toBeCloseTo(0.15, 10);
   });
 
+  it('forwards structured progress metadata with stable completed counts', async () => {
+    const delayedProvider = (label: string): ApiProvider =>
+      ({
+        id: () => 'echo',
+        label,
+        callApi: async (prompt: string) => {
+          const delayMs = prompt.includes('two') ? 10 : prompt.includes('three') ? 20 : 30;
+          await new Promise((resolve) => setTimeout(resolve, delayMs));
+          return { output: prompt };
+        },
+      }) as ApiProvider;
+
+    const progressCallback = vi.fn();
+    const testSuite: TestSuite = {
+      providers: [delayedProvider('fast-model'), delayedProvider('slow-model')],
+      prompts: [toPrompt('item={{item}}')],
+      tests: [
+        {
+          vars: { item: 'one' },
+          providers: ['fast-model'],
+          assert: [{ type: 'contains', value: 'one' }],
+        },
+        {
+          vars: { item: 'two' },
+          providers: ['fast-model'],
+          assert: [{ type: 'contains', value: 'two' }],
+        },
+        {
+          vars: { item: 'three' },
+          providers: ['slow-model'],
+          assert: [{ type: 'contains', value: 'three' }],
+        },
+      ],
+    };
+    const evalRecord = await Eval.create({}, testSuite.prompts, { id: randomUUID() });
+
+    await evaluate(testSuite, evalRecord, {
+      progressCallback,
+      showProgressBar: false,
+    });
+
+    const completionCalls = progressCallback.mock.calls.filter((call) => call[3]);
+
+    expect(progressCallback).toHaveBeenCalledTimes(3);
+    expect(completionCalls).toHaveLength(3);
+    expect(completionCalls.map((call) => call.length)).toEqual([6, 6, 6]);
+    expect(
+      completionCalls.map(([completed, _total, _index, evalStep, _metrics, progress]) => ({
+        completed,
+        label: evalStep?.provider?.label,
+        outcome: progress?.outcome,
+        providerTotal: progress?.providerTotal,
+      })),
+    ).toEqual([
+      { completed: 1, label: 'fast-model', outcome: 'pass', providerTotal: 2 },
+      { completed: 2, label: 'slow-model', outcome: 'pass', providerTotal: 1 },
+      { completed: 3, label: 'fast-model', outcome: 'pass', providerTotal: 2 },
+    ]);
+  });
+
+  it('announces the exact run plan before executing any tests', async () => {
+    const onPlan = vi.fn().mockImplementation(() => {
+      expect(mockApiProvider.callApi).not.toHaveBeenCalled();
+    });
+    const testSuite: TestSuite = {
+      providers: [mockApiProvider],
+      prompts: [toPrompt('Test prompt')],
+      tests: [{ vars: {} }],
+    };
+    const evalRecord = await Eval.create({}, testSuite.prompts, { id: randomUUID() });
+
+    await evaluate(testSuite, evalRecord, {
+      onPlan,
+      showProgressBar: false,
+    });
+
+    expect(onPlan).toHaveBeenCalledWith({
+      evalCount: 1,
+      comparisonCount: 0,
+      totalCount: 1,
+      providerTotals: { 'test-provider': 1 },
+      concurrency: DEFAULT_MAX_CONCURRENCY,
+    });
+  });
+
   it('merges metadata correctly for regular tests', async () => {
     const testSuite: TestSuite = {
       providers: [mockApiProvider],
@@ -2779,6 +2864,87 @@ describe('evaluator', () => {
     expect(summary.stats.successes).toBe(1);
     expect(summary.stats.failures).toBe(1);
     expect(summary.stats.errors).toBe(0);
+  });
+
+  it('should emit grading progress events for comparison assertions', async () => {
+    const progressEventCallback = vi.fn();
+    const maxScoreProvider: ApiProvider = {
+      id: vi.fn().mockReturnValue('max-score-provider'),
+      callApi: vi.fn().mockResolvedValue({
+        output: 'hello world',
+        tokenUsage: { total: 1, prompt: 1, completion: 0, cached: 0, numRequests: 1 },
+      }),
+    };
+
+    const testSuite: TestSuite = {
+      providers: [maxScoreProvider],
+      prompts: [toPrompt('Prompt A'), toPrompt('Prompt B')],
+      tests: [
+        {
+          assert: [{ type: 'contains', value: 'hello' }, { type: 'max-score' }],
+        },
+      ],
+    };
+
+    const evalRecord = await Eval.create({}, testSuite.prompts, { id: randomUUID() });
+    await evaluate(testSuite, evalRecord, {
+      progressEventCallback,
+      showProgressBar: false,
+    });
+
+    expect(progressEventCallback).toHaveBeenNthCalledWith(1, {
+      type: 'grading-start',
+      completed: 2,
+      total: 3,
+      comparisonCompleted: 0,
+      comparisonTotal: 1,
+    });
+    expect(progressEventCallback).toHaveBeenNthCalledWith(2, {
+      type: 'grading-progress',
+      completed: 3,
+      total: 3,
+      comparisonCompleted: 1,
+      comparisonTotal: 1,
+      prompt: 'Prompt A',
+    });
+  });
+
+  it('awaits async grading-start callbacks before emitting grading progress', async () => {
+    const events: string[] = [];
+    const progressEventCallback = vi.fn(async (event) => {
+      if (event.type === 'grading-start') {
+        events.push('start-begin');
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        events.push('start-end');
+        return;
+      }
+      events.push('progress');
+    });
+    const maxScoreProvider: ApiProvider = {
+      id: vi.fn().mockReturnValue('max-score-provider'),
+      callApi: vi.fn().mockResolvedValue({
+        output: 'hello world',
+        tokenUsage: { total: 1, prompt: 1, completion: 0, cached: 0, numRequests: 1 },
+      }),
+    };
+
+    const testSuite: TestSuite = {
+      providers: [maxScoreProvider],
+      prompts: [toPrompt('Prompt A'), toPrompt('Prompt B')],
+      tests: [
+        {
+          assert: [{ type: 'contains', value: 'hello' }, { type: 'max-score' }],
+        },
+      ],
+    };
+
+    const evalRecord = await Eval.create({}, testSuite.prompts, { id: randomUUID() });
+    await evaluate(testSuite, evalRecord, {
+      progressEventCallback,
+      showProgressBar: false,
+    });
+
+    expect(events).toEqual(['start-begin', 'start-end', 'progress']);
   });
 
   it('should apply select-best to overall pass/fail and stats', async () => {

@@ -86,6 +86,14 @@ export interface GradingTokens {
   reasoning: number;
 }
 
+export interface ProviderDefinition {
+  id: string;
+  label: string;
+  total?: number;
+}
+
+export type ProviderInput = string | ProviderDefinition;
+
 // ============================================================================
 // Context (Extended State)
 // ============================================================================
@@ -160,13 +168,15 @@ export interface EvalMachineContext {
 // ============================================================================
 
 export type EvalMachineEvent =
-  | { type: 'INIT'; providers: string[]; totalTests: number; concurrency?: number }
+  | { type: 'INIT'; providers: ProviderInput[]; totalTests: number; concurrency?: number }
   | { type: 'START' }
+  | { type: 'START_GRADING'; completed: number; total: number }
   | {
       type: 'PROGRESS';
       completed: number;
       total: number;
       provider?: string;
+      providerTotal?: number;
       prompt?: string;
       vars?: string;
       passedDelta?: number;
@@ -191,6 +201,7 @@ export type EvalMachineEvent =
       type: 'BATCH_PROGRESS';
       items: Array<{
         provider: string;
+        providerTotal?: number;
         passedDelta: number;
         failedDelta: number;
         errorDelta: number;
@@ -233,11 +244,11 @@ export type EvalMachineEvent =
 // Helper Functions
 // ============================================================================
 
-function createEmptyProviderMetrics(id: string): ProviderMetrics {
+function createEmptyProviderMetrics(id: string, label: string, total: number = 0): ProviderMetrics {
   return {
     id,
-    label: id,
-    testCases: { total: 0, completed: 0, passed: 0, failed: 0, errors: 0 },
+    label,
+    testCases: { total, completed: 0, passed: 0, failed: 0, errors: 0 },
     requests: { total: 0, cached: 0 },
     tokens: { prompt: 0, completion: 0, cached: 0, total: 0, reasoning: 0 },
     gradingTokens: { prompt: 0, completion: 0, cached: 0, total: 0, reasoning: 0 },
@@ -260,6 +271,7 @@ function applyProviderProgress(
   providers: Record<string, ProviderMetrics>,
   providerId: string,
   delta: {
+    providerTotal?: number;
     passedDelta: number;
     failedDelta: number;
     errorDelta: number;
@@ -292,6 +304,10 @@ function applyProviderProgress(
     latency: newLatency,
     testCases: {
       ...current.testCases,
+      total: Math.max(
+        current.testCases.completed + 1,
+        delta.providerTotal ?? current.testCases.total,
+      ),
       completed: current.testCases.completed + 1,
       passed: current.testCases.passed + (delta.passedDelta > 0 ? 1 : 0),
       failed: current.testCases.failed + (delta.failedDelta > 0 ? 1 : 0),
@@ -358,11 +374,17 @@ export const evalMachine = setup({
       }
 
       const providers: Record<string, ProviderMetrics> = {};
-      // event.totalTests is already per-provider (tests × prompts), not total across all providers
-      for (const id of event.providers) {
-        const metrics = createEmptyProviderMetrics(id);
-        metrics.testCases.total = event.totalTests;
-        providers[id] = metrics;
+      const providerDefinitions = event.providers.map((provider) =>
+        typeof provider === 'string'
+          ? { id: provider, label: provider, total: event.totalTests }
+          : provider,
+      );
+      for (const provider of providerDefinitions) {
+        providers[provider.id] = createEmptyProviderMetrics(
+          provider.id,
+          provider.label,
+          provider.total ?? 0,
+        );
       }
 
       return {
@@ -373,7 +395,7 @@ export const evalMachine = setup({
         failedTests: 0,
         errorCount: 0,
         providers,
-        providerOrder: event.providers,
+        providerOrder: providerDefinitions.map((provider) => provider.id),
         concurrency: event.concurrency ?? context.concurrency,
         // Reset sharing state from any previous run
         sharingStatus: 'idle' as const,
@@ -389,6 +411,18 @@ export const evalMachine = setup({
       startTime: () => Date.now(),
     }),
 
+    recordGradingStart: assign(({ context, event }) => {
+      if (event.type !== 'START_GRADING') {
+        return context;
+      }
+
+      return {
+        ...context,
+        completedTests: event.completed,
+        totalTests: Math.max(context.totalTests, event.total),
+      };
+    }),
+
     // Update progress (merged with TEST_RESULT for efficiency - single dispatch per test)
     updateProgress: assign(({ context, event }) => {
       if (event.type !== 'PROGRESS') {
@@ -399,6 +433,7 @@ export const evalMachine = setup({
         completed,
         total,
         provider,
+        providerTotal,
         prompt,
         vars,
         passedDelta = 0,
@@ -413,26 +448,10 @@ export const evalMachine = setup({
           ? applyProviderProgress(
               context.providers,
               provider,
-              { passedDelta, failedDelta, errorDelta, latencyMs, cost },
+              { providerTotal, passedDelta, failedDelta, errorDelta, latencyMs, cost },
               Date.now(),
             )
           : context.providers;
-
-      // Update per-provider totals if the real total is larger than INIT estimate
-      // (evaluator expands var combinations and repeats which aren't known at INIT time)
-      let updatedProviders = providers;
-      if (total > context.totalTests && context.providerOrder.length > 0) {
-        const perProviderTotal = Math.round(total / context.providerOrder.length);
-        updatedProviders = { ...updatedProviders };
-        for (const id of context.providerOrder) {
-          if (updatedProviders[id] && updatedProviders[id].testCases.total < perProviderTotal) {
-            updatedProviders[id] = {
-              ...updatedProviders[id],
-              testCases: { ...updatedProviders[id].testCases, total: perProviderTotal },
-            };
-          }
-        }
-      }
 
       return {
         ...context,
@@ -445,7 +464,7 @@ export const evalMachine = setup({
         currentProvider: provider ?? context.currentProvider,
         currentPrompt: prompt ?? context.currentPrompt,
         currentVars: vars ?? context.currentVars,
-        providers: updatedProviders,
+        providers,
       };
     }),
 
@@ -481,22 +500,6 @@ export const evalMachine = setup({
 
         if (item.provider && providers[item.provider]) {
           providers = applyProviderProgress(providers, item.provider, item, now);
-        }
-      }
-
-      // Update per-provider totals if the real total is larger than INIT estimate
-      if (totalTests > context.totalTests && context.providerOrder.length > 0) {
-        const perProviderTotal = Math.round(totalTests / context.providerOrder.length);
-        for (const id of context.providerOrder) {
-          if (providers[id] && providers[id].testCases.total < perProviderTotal) {
-            providers = {
-              ...providers,
-              [id]: {
-                ...providers[id],
-                testCases: { ...providers[id].testCases, total: perProviderTotal },
-              },
-            };
-          }
         }
       }
 
@@ -666,6 +669,8 @@ export const evalMachine = setup({
         return {};
       }
 
+      const endTime = Date.now();
+
       // Mark all providers as complete
       const providers = { ...context.providers };
       for (const id of context.providerOrder) {
@@ -681,7 +686,8 @@ export const evalMachine = setup({
         passedTests: event.passed,
         failedTests: event.failed,
         errorCount: event.errors,
-        endTime: Date.now(),
+        endTime,
+        elapsedMs: context.startTime ? endTime - context.startTime : context.elapsedMs,
         providers,
       };
     }),
@@ -751,6 +757,10 @@ export const evalMachine = setup({
 
     evaluating: {
       on: {
+        START_GRADING: {
+          target: 'grading',
+          actions: 'recordGradingStart',
+        },
         PROGRESS: {
           actions: 'updateProgress',
         },
@@ -808,6 +818,43 @@ export const evalMachine = setup({
               actions: assign({ sharingStatus: 'failed' as const }),
             },
           },
+        },
+      },
+    },
+
+    grading: {
+      on: {
+        PROGRESS: {
+          actions: 'updateProgress',
+        },
+        UPDATE_TOKENS: {
+          actions: 'updateTokens',
+        },
+        SET_GRADING_TOKENS: {
+          actions: 'setGradingTokens',
+        },
+        ADD_ERROR: {
+          actions: 'addError',
+        },
+        ADD_LOG: {
+          actions: 'addLog',
+        },
+        TOGGLE_VERBOSE: {
+          actions: 'toggleVerbose',
+        },
+        TOGGLE_ERROR_DETAILS: {
+          actions: 'toggleErrorDetails',
+        },
+        TICK: {
+          actions: 'updateElapsed',
+        },
+        COMPLETE: {
+          target: 'completed',
+          actions: 'recordCompletion',
+        },
+        FATAL_ERROR: {
+          target: 'error',
+          actions: 'storeFatalError',
         },
       },
     },
@@ -889,6 +936,8 @@ export function getEvalPhase(
         return 'initializing';
       case 'evaluating':
         return 'evaluating';
+      case 'grading':
+        return 'grading';
       case 'completed':
       case 'results':
         return 'completed';
@@ -927,9 +976,9 @@ export function getProgressPercent(context: EvalMachineContext): number {
  */
 export function isRunning(stateValue: string | object): boolean {
   if (typeof stateValue === 'string') {
-    return stateValue === 'evaluating';
+    return stateValue === 'evaluating' || stateValue === 'grading';
   }
-  return 'evaluating' in stateValue;
+  return 'evaluating' in stateValue || 'grading' in stateValue;
 }
 
 /**

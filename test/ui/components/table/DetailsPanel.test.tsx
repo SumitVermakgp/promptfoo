@@ -13,8 +13,9 @@ import type {
 } from '../../../../src/ui/components/table/types';
 
 // Mock terminal size
+const mockTerminalSize = { width: 100, height: 40 };
 vi.mock('../../../../src/ui/hooks/useTerminalSize', () => ({
-  useTerminalSize: () => ({ width: 100, height: 40 }),
+  useTerminalSize: () => mockTerminalSize,
 }));
 
 // Helper to create test data
@@ -81,6 +82,49 @@ function createTestData(
 }
 
 describe('DetailsPanel', () => {
+  it('should scroll long wrapped content', async () => {
+    mockTerminalSize.width = 40;
+    mockTerminalSize.height = 30;
+
+    const { cellData, column, rowData } = createTestData({
+      prompt: 'x'.repeat(120),
+    });
+    const onNavigate = vi.fn();
+    const onClose = vi.fn();
+
+    const { lastFrame, stdin, unmount } = render(
+      <DetailsPanel
+        cellData={cellData}
+        column={column}
+        rowData={rowData}
+        allRows={[rowData]}
+        varNames={['var1']}
+        currentRowIndex={0}
+        currentColIndex={1}
+        outputCellIndex={0}
+        onNavigate={onNavigate}
+        onClose={onClose}
+      />,
+    );
+
+    expect(lastFrame()).toContain('1-3 of 6 lines');
+
+    stdin.write('\u001B[B');
+
+    for (let attempt = 0; attempt < 20; attempt++) {
+      if ((lastFrame() ?? '').includes('2-4 of 6 lines')) {
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+
+    expect(lastFrame()).toContain('2-4 of 6 lines');
+
+    unmount();
+    mockTerminalSize.width = 100;
+    mockTerminalSize.height = 40;
+  });
+
   it('should render with basic content', () => {
     const { cellData, column, rowData } = createTestData();
     const onNavigate = vi.fn();

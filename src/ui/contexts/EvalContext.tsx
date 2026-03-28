@@ -9,6 +9,7 @@
 import React, { createContext, useCallback, useContext, useMemo } from 'react';
 
 import { useMachine } from '@xstate/react';
+import { getInitialSnapshot, getNextSnapshot } from 'xstate';
 import {
   type EvalError,
   type EvalMachineContext,
@@ -20,6 +21,7 @@ import {
   getSessionPhase,
   isComplete as machineIsComplete,
   isRunning as machineIsRunning,
+  type ProviderInput,
   type ProviderMetrics,
   type TokenMetricsPayload,
 } from '../machines/evalMachine';
@@ -112,8 +114,12 @@ export interface EvalState {
 // Action types for backwards compatibility with old reducer pattern
 // These get converted to XState events internally
 export type EvalAction =
-  | { type: 'INIT'; payload: { totalTests: number; providers: string[]; concurrency?: number } }
+  | {
+      type: 'INIT';
+      payload: { totalTests: number; providers: ProviderInput[]; concurrency?: number };
+    }
   | { type: 'START' }
+  | { type: 'START_GRADING'; payload: { completed: number; total: number } }
   | { type: 'SET_PHASE'; payload: EvalState['phase'] }
   | {
       type: 'PROGRESS';
@@ -121,10 +127,12 @@ export type EvalAction =
         completed: number;
         total: number;
         provider?: string;
+        providerTotal?: number;
         prompt?: string;
         vars?: string;
         passed?: boolean;
         error?: string;
+        outcome?: 'pass' | 'fail' | 'error';
         // Merged from TEST_RESULT for efficiency
         latencyMs?: number;
         cost?: number;
@@ -137,8 +145,10 @@ export type EvalAction =
       payload: {
         items: Array<{
           provider: string;
-          passed: boolean;
-          error: boolean;
+          providerTotal?: number;
+          passed?: boolean;
+          error?: boolean;
+          outcome?: 'pass' | 'fail' | 'error';
           latencyMs: number;
           cost: number;
           completed: number;
@@ -269,21 +279,47 @@ function actionToEvent(action: EvalAction): EvalMachineEvent | null {
     case 'START':
       return { type: 'START' };
 
+    case 'START_GRADING':
+      return {
+        type: 'START_GRADING',
+        completed: action.payload.completed,
+        total: action.payload.total,
+      };
+
     case 'PROGRESS': {
-      const { completed, total, provider, prompt, vars, passed, error, latencyMs, cost } =
-        action.payload;
+      const {
+        completed,
+        total,
+        provider,
+        providerTotal,
+        prompt,
+        vars,
+        passed,
+        error,
+        outcome,
+        latencyMs,
+        cost,
+      } = action.payload;
+      const resolvedOutcome =
+        outcome ??
+        (passed === true
+          ? 'pass'
+          : passed === false && !error
+            ? 'fail'
+            : error
+              ? 'error'
+              : undefined);
       return {
         type: 'PROGRESS',
         completed,
         total,
         provider,
+        providerTotal,
         prompt,
         vars,
-        passedDelta: passed === true ? 1 : 0,
-        // Fix: Only count as failure if not a pass AND not an error
-        // Previously errors were double-counted as both failures AND errors
-        failedDelta: passed === false && !error ? 1 : 0,
-        errorDelta: error ? 1 : 0,
+        passedDelta: resolvedOutcome === 'pass' ? 1 : 0,
+        failedDelta: resolvedOutcome === 'fail' ? 1 : 0,
+        errorDelta: resolvedOutcome === 'error' ? 1 : 0,
         // Merged from TEST_RESULT for efficiency
         latencyMs,
         cost,
@@ -294,9 +330,40 @@ function actionToEvent(action: EvalAction): EvalMachineEvent | null {
       // Convert batch items to XState format with delta calculations
       const items = action.payload.items.map((item) => ({
         provider: item.provider,
-        passedDelta: item.passed ? 1 : 0,
-        failedDelta: !item.passed && !item.error ? 1 : 0,
-        errorDelta: item.error ? 1 : 0,
+        providerTotal: item.providerTotal,
+        passedDelta:
+          (item.outcome ??
+            (item.passed === true
+              ? 'pass'
+              : item.error
+                ? 'error'
+                : item.passed === false
+                  ? 'fail'
+                  : undefined)) === 'pass'
+            ? 1
+            : 0,
+        failedDelta:
+          (item.outcome ??
+            (item.passed === true
+              ? 'pass'
+              : item.error
+                ? 'error'
+                : item.passed === false
+                  ? 'fail'
+                  : undefined)) === 'fail'
+            ? 1
+            : 0,
+        errorDelta:
+          (item.outcome ??
+            (item.passed === true
+              ? 'pass'
+              : item.error
+                ? 'error'
+                : item.passed === false
+                  ? 'fail'
+                  : undefined)) === 'error'
+            ? 1
+            : 0,
         latencyMs: item.latencyMs,
         cost: item.cost,
         completed: item.completed,
@@ -428,7 +495,7 @@ interface EvalContextValue {
   dispatch: React.Dispatch<EvalAction>;
 
   // Helper actions
-  init: (totalTests: number, providers: string[]) => void;
+  init: (totalTests: number, providers: ProviderInput[], concurrency?: number) => void;
   start: () => void;
   updateProgress: (
     completed: number,
@@ -465,11 +532,31 @@ const EvalContext = createContext<EvalContextValue | null>(null);
 
 export interface EvalProviderProps {
   children: React.ReactNode;
-  initialState?: Partial<EvalState>;
+  initialState?: {
+    totalTests: number;
+    providers: ProviderInput[];
+    concurrency?: number;
+  };
 }
 
-export function EvalProvider({ children }: EvalProviderProps) {
-  const [machineState, send] = useMachine(evalMachine);
+export function EvalProvider({ children, initialState }: EvalProviderProps) {
+  const initialSnapshot = useMemo(() => {
+    if (!initialState || (initialState.totalTests === 0 && initialState.providers.length === 0)) {
+      return undefined;
+    }
+
+    return getNextSnapshot(evalMachine, getInitialSnapshot(evalMachine), {
+      type: 'INIT',
+      totalTests: initialState.totalTests,
+      providers: initialState.providers,
+      concurrency: initialState.concurrency,
+    });
+  }, [initialState]);
+
+  const [machineState, send] = useMachine(
+    evalMachine,
+    initialSnapshot ? { snapshot: initialSnapshot } : undefined,
+  );
 
   // Convert machine state to backwards-compatible EvalState
   const state = useMemo(
@@ -490,8 +577,8 @@ export function EvalProvider({ children }: EvalProviderProps) {
 
   // Helper action creators
   const init = useCallback(
-    (totalTests: number, providers: string[]) => {
-      send({ type: 'INIT', totalTests, providers });
+    (totalTests: number, providers: ProviderInput[], concurrency?: number) => {
+      send({ type: 'INIT', totalTests, providers, concurrency });
     },
     [send],
   );

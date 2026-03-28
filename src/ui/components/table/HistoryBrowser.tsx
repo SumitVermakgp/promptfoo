@@ -189,6 +189,10 @@ export const HistoryBrowser = memo(function HistoryBrowser({
       }
 
       // Cancel
+      if (key.escape && searchQuery) {
+        setSearchQuery('');
+        return;
+      }
       if (key.escape || input.toLowerCase() === 'q') {
         onCancel();
         return;

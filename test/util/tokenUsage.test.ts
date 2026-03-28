@@ -212,4 +212,16 @@ describe('TokenUsageTracker', () => {
     tracker.resetAllUsage();
     expect(tracker.getProviderIds()).toHaveLength(0);
   });
+
+  it('should prefer exact UI key mappings when resolving provider labels', () => {
+    tracker.setLabelMap(
+      new Map([
+        ['echo#0', 'echo#0'],
+        ['echo#1', 'echo#1'],
+      ]),
+    );
+
+    expect(tracker.resolveLabel('echo#0 (EchoProvider)')).toBe('echo#0');
+    expect(tracker.resolveLabel('echo#1 (EchoProvider)')).toBe('echo#1');
+  });
 });
