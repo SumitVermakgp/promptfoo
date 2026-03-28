@@ -348,8 +348,8 @@ export class AnthropicMessagesProvider extends AnthropicGenericProvider {
             config,
             finalMessage.usage?.input_tokens,
             finalMessage.usage?.output_tokens,
-            (finalMessage.usage as any)?.cache_read_input_tokens,
-            (finalMessage.usage as any)?.cache_creation_input_tokens,
+            finalMessage.usage?.cache_read_input_tokens ?? undefined,
+            finalMessage.usage?.cache_creation_input_tokens ?? undefined,
           ),
         };
       } else {
@@ -388,8 +388,8 @@ export class AnthropicMessagesProvider extends AnthropicGenericProvider {
             config,
             response.usage?.input_tokens,
             response.usage?.output_tokens,
-            (response.usage as any)?.cache_read_input_tokens,
-            (response.usage as any)?.cache_creation_input_tokens,
+            response.usage?.cache_read_input_tokens ?? undefined,
+            response.usage?.cache_creation_input_tokens ?? undefined,
           ),
         };
       }

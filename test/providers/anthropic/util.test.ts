@@ -188,20 +188,18 @@ describe('Anthropic utilities', () => {
 
     it('should apply cache pricing for non-tiered models with cache tokens', () => {
       // claude-3-5-sonnet: $3/MTok input, $15/MTok output
-      // cache read = 10% of input rate, cache write = 125% of input rate
-      // 100 input, 50 cache_read, 30 cache_write, 200 output
-      // uncached = 100 - 50 - 30 = 20
-      // cost = 20 * 3/1e6 + 50 * 0.3/1e6 + 30 * 3.75/1e6 + 200 * 15/1e6
+      // Anthropic: input_tokens is the uncached portion; cache tokens are additive
+      // 100 uncached input, 50 cache_read, 30 cache_write, 200 output
       const cost = calculateAnthropicCost('claude-3-5-sonnet-20241022', {}, 100, 200, 50, 30);
       const expected =
-        20 * (3 / 1e6) + 50 * (3 / 1e6) * 0.1 + 30 * (3 / 1e6) * 1.25 + 200 * (15 / 1e6);
+        100 * (3 / 1e6) + 50 * (3 / 1e6) * 0.1 + 30 * (3 / 1e6) * 1.25 + 200 * (15 / 1e6);
       expect(cost).toBeCloseTo(expected, 10);
     });
 
     it('should apply cache pricing for Sonnet 4.5 tiered model with cache tokens', () => {
       // Sonnet 4.5 below 200k threshold: $3/MTok input, $15/MTok output
-      // 100k input, 20k cache_read, 10k cache_write, 10k output
-      // effective input = 100k + 20k + 10k = 130k (below 200k)
+      // 100k uncached input, 20k cache_read, 10k cache_write, 10k output
+      // effective total input = 100k + 20k + 10k = 130k (below 200k threshold)
       const cost = calculateAnthropicCost(
         'claude-sonnet-4-5-20250929',
         {},
@@ -210,9 +208,8 @@ describe('Anthropic utilities', () => {
         20_000,
         10_000,
       );
-      const uncached = 100_000 - 20_000 - 10_000;
       const expected =
-        uncached * (3 / 1e6) +
+        100_000 * (3 / 1e6) +
         20_000 * (3 / 1e6) * 0.1 +
         10_000 * (3 / 1e6) * 1.25 +
         10_000 * (15 / 1e6);
@@ -221,7 +218,7 @@ describe('Anthropic utilities', () => {
 
     it('should use long-context tier when cache tokens push past 200k', () => {
       // Sonnet 4.5 with effective input > 200k due to cache tokens
-      // 150k input, 60k cache_read, 10k cache_write = 220k effective (>200k)
+      // 150k uncached input, 60k cache_read, 10k cache_write = 220k effective (>200k)
       const cost = calculateAnthropicCost(
         'claude-sonnet-4-5-20250929',
         {},
@@ -230,9 +227,8 @@ describe('Anthropic utilities', () => {
         60_000,
         10_000,
       );
-      const uncached = 150_000 - 60_000 - 10_000;
       const expected =
-        uncached * (6 / 1e6) +
+        150_000 * (6 / 1e6) +
         60_000 * (6 / 1e6) * 0.1 +
         10_000 * (6 / 1e6) * 1.25 +
         10_000 * (22.5 / 1e6);

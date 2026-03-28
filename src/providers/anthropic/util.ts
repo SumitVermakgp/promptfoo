@@ -259,17 +259,17 @@ export function parseMessages(messages: string): {
 
 /**
  * Compute input cost with Anthropic cache pricing applied.
- * Cache reads are 10% of base input rate, cache writes are 125%.
+ * Anthropic docs: input_tokens is the non-cached portion; cache_read and cache_creation are additive.
+ * Cache reads cost 10% of base rate (90% discount), cache writes cost 125% of base rate (25% surcharge).
  */
 function calculateCacheInputCost(
   baseInputRate: number,
-  promptTokens: number,
+  uncachedInputTokens: number,
   cacheRead: number,
   cacheCreation: number,
 ): number {
-  const uncached = Math.max(0, promptTokens - cacheRead - cacheCreation);
   return (
-    uncached * baseInputRate +
+    uncachedInputTokens * baseInputRate +
     cacheRead * baseInputRate * 0.1 +
     cacheCreation * baseInputRate * 1.25
   );
@@ -347,8 +347,11 @@ export function getTokenUsage(data: any, cached: boolean): Partial<TokenUsage> {
         completion: data.usage.output_tokens ?? 0,
       };
 
-      // Track Anthropic prompt caching details
-      if (data.usage.cache_read_input_tokens || data.usage.cache_creation_input_tokens) {
+      // Track Anthropic prompt caching details (stored in completionDetails since there is no dedicated inputDetails field)
+      if (
+        data.usage.cache_read_input_tokens != null ||
+        data.usage.cache_creation_input_tokens != null
+      ) {
         usage.completionDetails = {
           cacheReadInputTokens: data.usage.cache_read_input_tokens ?? 0,
           cacheCreationInputTokens: data.usage.cache_creation_input_tokens ?? 0,
@@ -420,7 +423,12 @@ export function processAnthropicTools(tools: (Anthropic.Tool | AnthropicToolConf
 /**
  * Apply shared web fetch tool fields from config onto the SDK tool object.
  */
-function applyWebFetchFields(tool: any, config: WebFetchToolConfig | WebFetchToolConfigV2): void {
+function applyWebFetchFields(
+  tool:
+    | Anthropic.Beta.Messages.BetaWebFetchTool20250910
+    | Anthropic.Beta.Messages.BetaWebFetchTool20260309,
+  config: WebFetchToolConfig | WebFetchToolConfigV2,
+): void {
   if (config.max_uses !== undefined) {
     tool.max_uses = config.max_uses;
   }

@@ -2,7 +2,7 @@ import type Anthropic from '@anthropic-ai/sdk';
 
 import type { MCPConfig } from '../mcp/types';
 
-// Web fetch tool configuration (legacy version)
+// Web fetch tool configuration (v1 — does not support use_cache)
 export interface WebFetchToolConfig {
   type: 'web_fetch_20250910';
   name: 'web_fetch';
