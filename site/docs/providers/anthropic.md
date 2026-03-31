@@ -198,7 +198,7 @@ Anthropic provides specialized tools for web search and web fetching capabilitie
 
 The web fetch tool allows Claude to retrieve full content from web pages and PDF documents. This is useful when you want Claude to access and analyze specific web content.
 
-```yaml title="promptfooconfig.yaml"
+```yaml
 providers:
   - id: anthropic:messages:claude-sonnet-4-5-20250929
     config:
@@ -214,13 +214,17 @@ providers:
           max_content_tokens: 50000
 ```
 
-A newer version `web_fetch_20260309` adds `use_cache` support for controlling whether cached content is used:
+Promptfoo also supports the stable `web_fetch_20260209` variant. A newer version `web_fetch_20260309` adds `use_cache` support for controlling whether cached content is used:
 
-```yaml title="promptfooconfig.yaml"
+```yaml
 providers:
   - id: anthropic:messages:claude-sonnet-4-5-20250929
     config:
       tools:
+        - type: web_fetch_20260209
+          name: web_fetch
+          max_uses: 3
+          defer_loading: true
         - type: web_fetch_20260309
           name: web_fetch
           max_uses: 3
@@ -231,50 +235,60 @@ providers:
 
 | Parameter            | Type     | Description                                                                                  |
 | -------------------- | -------- | -------------------------------------------------------------------------------------------- |
-| `type`               | string   | `web_fetch_20250910` or `web_fetch_20260309` (newer, adds `use_cache`)                       |
+| `type`               | string   | `web_fetch_20250910`, `web_fetch_20260209`, or `web_fetch_20260309` (adds `use_cache`)       |
 | `name`               | string   | Must be `web_fetch`                                                                          |
 | `max_uses`           | number   | Maximum number of web fetches per request (optional)                                         |
+| `allowed_callers`    | string[] | Restrict which tool callers may invoke the server tool (optional)                            |
 | `allowed_domains`    | string[] | List of domains to allow fetching from (optional, mutually exclusive with `blocked_domains`) |
 | `blocked_domains`    | string[] | List of domains to block fetching from (optional, mutually exclusive with `allowed_domains`) |
+| `defer_loading`      | boolean  | Load the tool lazily instead of including it in the initial system prompt (optional)         |
 | `citations`          | object   | Enable citations with `{ enabled: true }` (optional)                                         |
 | `max_content_tokens` | number   | Maximum tokens for web content (optional)                                                    |
+| `strict`             | boolean  | Enable strict schema validation for tool names and inputs (optional)                         |
 | `use_cache`          | boolean  | Whether to use cached content (`web_fetch_20260309` only, optional)                          |
 
 ##### Web Search Tool
 
 The web search tool allows Claude to search the internet for information:
 
-```yaml title="promptfooconfig.yaml"
+```yaml
 providers:
   - id: anthropic:messages:claude-sonnet-4-5-20250929
     config:
       tools:
-        - type: web_search_20250305
+        - type: web_search_20260209
           name: web_search
           max_uses: 3
 ```
 
 **Web Search Tool Configuration Options:**
 
-| Parameter  | Type   | Description                                       |
-| ---------- | ------ | ------------------------------------------------- |
-| `type`     | string | Must be `web_search_20250305`                     |
-| `name`     | string | Must be `web_search`                              |
-| `max_uses` | number | Maximum number of searches per request (optional) |
+| Parameter         | Type     | Description                                                                                |
+| ----------------- | -------- | ------------------------------------------------------------------------------------------ |
+| `type`            | string   | `web_search_20250305` or `web_search_20260209`                                             |
+| `name`            | string   | Must be `web_search`                                                                       |
+| `max_uses`        | number   | Maximum number of searches per request (optional)                                          |
+| `allowed_callers` | string[] | Restrict which tool callers may invoke the server tool (optional)                          |
+| `allowed_domains` | string[] | Restrict results to specific domains (optional, mutually exclusive with `blocked_domains`) |
+| `blocked_domains` | string[] | Exclude domains from results (optional, mutually exclusive with `allowed_domains`)         |
+| `cache_control`   | object   | Apply Anthropic cache control to the tool definition (optional)                            |
+| `defer_loading`   | boolean  | Load the tool lazily instead of including it in the initial system prompt (optional)       |
+| `strict`          | boolean  | Enable strict schema validation for tool names and inputs (optional)                       |
+| `user_location`   | object   | Approximate user location to improve search relevance (optional)                           |
 
 ##### Combined Web Search and Web Fetch
 
 You can use both tools together for comprehensive web information gathering:
 
-```yaml title="promptfooconfig.yaml"
+```yaml
 providers:
   - id: anthropic:messages:claude-sonnet-4-5-20250929
     config:
       tools:
-        - type: web_search_20250305
+        - type: web_search_20260209
           name: web_search
           max_uses: 3
-        - type: web_fetch_20250910
+        - type: web_fetch_20260309
           name: web_fetch
           max_uses: 5
           citations:

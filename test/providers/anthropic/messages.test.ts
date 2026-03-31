@@ -343,6 +343,30 @@ describe('AnthropicMessagesProvider', () => {
       expect(callArgs).toHaveProperty('thinking');
     });
 
+    it('should preserve non-thinking parameters when thinking is explicitly disabled', async () => {
+      const provider = createProvider('claude-3-5-sonnet-20241022', {
+        config: {
+          thinking: { type: 'disabled' },
+          top_k: 40,
+          temperature: 0.7,
+        },
+      });
+
+      vi.spyOn(provider.anthropic.messages, 'create').mockResolvedValue({
+        content: [{ type: 'text', text: 'Test response' }],
+      } as Anthropic.Messages.Message);
+
+      await provider.callApi('Test prompt');
+
+      const callArgs = vi.mocked(provider.anthropic.messages.create).mock.calls[0][0];
+      expect(callArgs).toMatchObject({
+        max_tokens: 1024,
+        temperature: 0.7,
+        thinking: { type: 'disabled' },
+        top_k: 40,
+      });
+    });
+
     it('should include cache_control in API call when configured', async () => {
       const provider = createProvider('claude-3-5-sonnet-20241022', {
         config: {
@@ -404,6 +428,26 @@ describe('AnthropicMessagesProvider', () => {
         }),
         {},
       );
+    });
+
+    it('should ignore metadata when deriving the cache key', async () => {
+      const provider = createProvider('claude-3-5-sonnet-20241022', {
+        config: {
+          metadata: { user_id: 'user-123' },
+        },
+      });
+
+      vi.spyOn(provider.anthropic.messages, 'create').mockResolvedValue({
+        content: [{ type: 'text', text: 'Test response' }],
+      } as Anthropic.Messages.Message);
+
+      await provider.callApi('Test prompt');
+      provider.config.metadata = { user_id: 'user-456' };
+      const cachedResult = await provider.callApi('Test prompt');
+
+      expect(provider.anthropic.messages.create).toHaveBeenCalledTimes(1);
+      expect(cachedResult.cached).toBe(true);
+      expect(cachedResult.output).toBe('Test response');
     });
 
     it('should not use cache if caching is disabled for ToolUse requests', async () => {
@@ -776,6 +820,27 @@ describe('AnthropicMessagesProvider', () => {
       expect(callArgs).not.toHaveProperty('temperature');
     });
 
+    it('should not clamp top_p when thinking is explicitly disabled', async () => {
+      const provider = createProvider('claude-3-7-sonnet-20250219', {
+        config: {
+          thinking: { type: 'disabled' },
+          top_p: 0.5,
+        },
+      });
+
+      vi.spyOn(provider.anthropic.messages, 'create').mockResolvedValue({
+        content: [{ type: 'text', text: 'Test response' }],
+      } as Anthropic.Messages.Message);
+
+      await provider.callApi('Test prompt');
+      const callArgs = vi.mocked(provider.anthropic.messages.create).mock.calls[0][0];
+      expect(callArgs).toMatchObject({
+        max_tokens: 1024,
+        thinking: { type: 'disabled' },
+        top_p: 0.5,
+      });
+    });
+
     it('should suppress forced tool_choice when thinking is enabled', async () => {
       const provider = createProvider('claude-3-7-sonnet-20250219', {
         config: {
@@ -799,6 +864,32 @@ describe('AnthropicMessagesProvider', () => {
       const callArgs = vi.mocked(provider.anthropic.messages.create).mock.calls[0][0];
       // Forced tool use (type: 'any' from 'required') is incompatible with thinking
       expect(callArgs).not.toHaveProperty('tool_choice');
+    });
+
+    it('should allow tool_choice none when thinking is enabled', async () => {
+      const provider = createProvider('claude-3-7-sonnet-20250219', {
+        config: {
+          thinking: { type: 'enabled', budget_tokens: 2048 },
+          tool_choice: 'none',
+          tools: [
+            {
+              name: 'test_tool',
+              description: 'A test tool',
+              input_schema: { type: 'object' as const, properties: {} },
+            },
+          ],
+        },
+      });
+
+      vi.spyOn(provider.anthropic.messages, 'create').mockResolvedValue({
+        content: [{ type: 'text', text: 'Test response' }],
+      } as Anthropic.Messages.Message);
+
+      await provider.callApi('Test prompt');
+      const callArgs = vi.mocked(provider.anthropic.messages.create).mock.calls[0][0];
+      expect(callArgs).toMatchObject({
+        tool_choice: { type: 'none' },
+      });
     });
 
     it('should include beta features header when specified', async () => {

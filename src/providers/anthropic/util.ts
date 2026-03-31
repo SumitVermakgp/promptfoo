@@ -6,8 +6,10 @@ import type { TokenUsage } from '../../types/index';
 import type {
   AnthropicToolConfig,
   WebFetchToolConfig,
+  WebFetchToolConfig20260209,
   WebFetchToolConfigV2,
   WebSearchToolConfig,
+  WebSearchToolConfig20260209,
 } from './types';
 
 // Model definitions with cost information
@@ -376,38 +378,53 @@ export function processAnthropicTools(tools: (Anthropic.Tool | AnthropicToolConf
   processedTools: (
     | Anthropic.Tool
     | Anthropic.Beta.Messages.BetaWebFetchTool20250910
+    | Anthropic.Beta.Messages.BetaWebFetchTool20260209
     | Anthropic.Beta.Messages.BetaWebFetchTool20260309
     | Anthropic.Beta.Messages.BetaWebSearchTool20250305
+    | Anthropic.Beta.Messages.BetaWebSearchTool20260209
   )[];
   requiredBetaFeatures: string[];
 } {
   const processedTools: (
     | Anthropic.Tool
     | Anthropic.Beta.Messages.BetaWebFetchTool20250910
+    | Anthropic.Beta.Messages.BetaWebFetchTool20260209
     | Anthropic.Beta.Messages.BetaWebFetchTool20260309
     | Anthropic.Beta.Messages.BetaWebSearchTool20250305
+    | Anthropic.Beta.Messages.BetaWebSearchTool20260209
   )[] = [];
   const requiredBetaFeatures: string[] = [];
+
+  const addRequiredBetaFeature = (feature: string) => {
+    if (!requiredBetaFeatures.includes(feature)) {
+      requiredBetaFeatures.push(feature);
+    }
+  };
 
   for (const tool of tools) {
     if ('type' in tool) {
       // Handle our custom tool configs
       if (tool.type === 'web_fetch_20250910') {
         processedTools.push(transformWebFetchTool(tool as WebFetchToolConfig));
-        if (!requiredBetaFeatures.includes('web-fetch-2025-09-10')) {
-          requiredBetaFeatures.push('web-fetch-2025-09-10');
-        }
+        addRequiredBetaFeature('web-fetch-2025-09-10');
+      } else if (tool.type === 'web_fetch_20260209') {
+        processedTools.push(transformWebFetchTool20260209(tool as WebFetchToolConfig20260209));
       } else if (tool.type === 'web_fetch_20260309') {
         processedTools.push(transformWebFetchToolV2(tool as WebFetchToolConfigV2));
-        if (!requiredBetaFeatures.includes('web-fetch-2025-09-10')) {
-          requiredBetaFeatures.push('web-fetch-2025-09-10');
-        }
+        addRequiredBetaFeature('web-fetch-2025-09-10');
       } else if (tool.type === 'web_search_20250305') {
         processedTools.push(transformWebSearchTool(tool as WebSearchToolConfig));
+        // Web search doesn't need beta header in latest SDK
+      } else if (tool.type === 'web_search_20260209') {
+        processedTools.push(transformWebSearchTool20260209(tool as WebSearchToolConfig20260209));
         // Web search doesn't need beta header in latest SDK
       } else {
         // Pass through other tool types (standard Anthropic tools)
         processedTools.push(tool as Anthropic.Tool);
+      }
+
+      if ('strict' in tool && tool.strict === true) {
+        addRequiredBetaFeature('structured-outputs-2025-11-13');
       }
     } else {
       // Standard Anthropic tool
@@ -415,9 +432,7 @@ export function processAnthropicTools(tools: (Anthropic.Tool | AnthropicToolConf
 
       // Check if tool uses strict mode (structured outputs for tools)
       if ('strict' in tool && tool.strict === true) {
-        if (!requiredBetaFeatures.includes('structured-outputs-2025-11-13')) {
-          requiredBetaFeatures.push('structured-outputs-2025-11-13');
-        }
+        addRequiredBetaFeature('structured-outputs-2025-11-13');
       }
     }
   }
@@ -431,9 +446,13 @@ export function processAnthropicTools(tools: (Anthropic.Tool | AnthropicToolConf
 function applyWebFetchFields(
   tool:
     | Anthropic.Beta.Messages.BetaWebFetchTool20250910
+    | Anthropic.Beta.Messages.BetaWebFetchTool20260209
     | Anthropic.Beta.Messages.BetaWebFetchTool20260309,
-  config: WebFetchToolConfig | WebFetchToolConfigV2,
+  config: WebFetchToolConfig | WebFetchToolConfig20260209 | WebFetchToolConfigV2,
 ): void {
+  if (config.allowed_callers) {
+    tool.allowed_callers = config.allowed_callers;
+  }
   if (config.max_uses !== undefined) {
     tool.max_uses = config.max_uses;
   }
@@ -452,6 +471,12 @@ function applyWebFetchFields(
   if (config.cache_control) {
     tool.cache_control = config.cache_control;
   }
+  if (config.defer_loading !== undefined) {
+    tool.defer_loading = config.defer_loading;
+  }
+  if (config.strict !== undefined) {
+    tool.strict = config.strict;
+  }
 }
 
 function transformWebFetchTool(
@@ -459,6 +484,17 @@ function transformWebFetchTool(
 ): Anthropic.Beta.Messages.BetaWebFetchTool20250910 {
   const tool: Anthropic.Beta.Messages.BetaWebFetchTool20250910 = {
     type: 'web_fetch_20250910',
+    name: 'web_fetch',
+  };
+  applyWebFetchFields(tool, config);
+  return tool;
+}
+
+function transformWebFetchTool20260209(
+  config: WebFetchToolConfig20260209,
+): Anthropic.Beta.Messages.BetaWebFetchTool20260209 {
+  const tool: Anthropic.Beta.Messages.BetaWebFetchTool20260209 = {
+    type: 'web_fetch_20260209',
     name: 'web_fetch',
   };
   applyWebFetchFields(tool, config);
@@ -479,6 +515,38 @@ function transformWebFetchToolV2(
   return tool;
 }
 
+function applyWebSearchFields(
+  tool:
+    | Anthropic.Beta.Messages.BetaWebSearchTool20250305
+    | Anthropic.Beta.Messages.BetaWebSearchTool20260209,
+  config: WebSearchToolConfig | WebSearchToolConfig20260209,
+): void {
+  if (config.allowed_callers) {
+    tool.allowed_callers = config.allowed_callers;
+  }
+  if (config.allowed_domains) {
+    tool.allowed_domains = config.allowed_domains;
+  }
+  if (config.blocked_domains) {
+    tool.blocked_domains = config.blocked_domains;
+  }
+  if (config.cache_control) {
+    tool.cache_control = config.cache_control;
+  }
+  if (config.defer_loading !== undefined) {
+    tool.defer_loading = config.defer_loading;
+  }
+  if (config.max_uses !== undefined) {
+    tool.max_uses = config.max_uses;
+  }
+  if (config.strict !== undefined) {
+    tool.strict = config.strict;
+  }
+  if (config.user_location) {
+    tool.user_location = config.user_location;
+  }
+}
+
 /**
  * Transform web search tool config to Anthropic beta tool format
  */
@@ -489,13 +557,17 @@ function transformWebSearchTool(
     type: 'web_search_20250305',
     name: 'web_search',
   };
+  applyWebSearchFields(tool, config);
+  return tool;
+}
 
-  if (config.max_uses !== undefined) {
-    tool.max_uses = config.max_uses;
-  }
-  if (config.cache_control) {
-    tool.cache_control = config.cache_control;
-  }
-
+function transformWebSearchTool20260209(
+  config: WebSearchToolConfig20260209,
+): Anthropic.Beta.Messages.BetaWebSearchTool20260209 {
+  const tool: Anthropic.Beta.Messages.BetaWebSearchTool20260209 = {
+    type: 'web_search_20260209',
+    name: 'web_search',
+  };
+  applyWebSearchFields(tool, config);
   return tool;
 }

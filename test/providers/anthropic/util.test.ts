@@ -11,8 +11,10 @@ import type Anthropic from '@anthropic-ai/sdk';
 
 import type {
   WebFetchToolConfig,
+  WebFetchToolConfig20260209,
   WebFetchToolConfigV2,
   WebSearchToolConfig,
+  WebSearchToolConfig20260209,
 } from '../../../src/providers/anthropic/types';
 
 describe('Anthropic utilities', () => {
@@ -936,6 +938,42 @@ describe('Anthropic utilities', () => {
       expect(requiredBetaFeatures).toEqual([]);
     });
 
+    it('should preserve extended web_search_20250305 options', () => {
+      const webSearchTool: WebSearchToolConfig = {
+        type: 'web_search_20250305',
+        name: 'web_search',
+        allowed_callers: ['direct'],
+        allowed_domains: ['docs.example.com'],
+        cache_control: { type: 'ephemeral' },
+        defer_loading: true,
+        max_uses: 3,
+        user_location: {
+          type: 'approximate',
+          city: 'San Francisco',
+          country: 'US',
+        },
+      };
+
+      const { processedTools, requiredBetaFeatures } = processAnthropicTools([webSearchTool]);
+
+      expect(processedTools).toHaveLength(1);
+      expect(processedTools[0]).toMatchObject({
+        type: 'web_search_20250305',
+        name: 'web_search',
+        allowed_callers: ['direct'],
+        allowed_domains: ['docs.example.com'],
+        cache_control: { type: 'ephemeral' },
+        defer_loading: true,
+        max_uses: 3,
+        user_location: {
+          type: 'approximate',
+          city: 'San Francisco',
+          country: 'US',
+        },
+      });
+      expect(requiredBetaFeatures).toEqual([]);
+    });
+
     it('should handle mixed tool types', () => {
       const standardTool: Anthropic.Tool = {
         name: 'calculate',
@@ -985,10 +1023,12 @@ describe('Anthropic utilities', () => {
       const webFetchTool: WebFetchToolConfig = {
         type: 'web_fetch_20250910',
         name: 'web_fetch',
+        allowed_callers: ['direct'],
         max_uses: 10,
         allowed_domains: ['docs.example.com', 'help.example.com'],
         blocked_domains: ['ads.example.com'],
         citations: { enabled: true },
+        defer_loading: true,
         max_content_tokens: 50000,
         cache_control: { type: 'ephemeral' },
       };
@@ -999,10 +1039,12 @@ describe('Anthropic utilities', () => {
       expect(processedTools[0]).toMatchObject({
         type: 'web_fetch_20250910',
         name: 'web_fetch',
+        allowed_callers: ['direct'],
         max_uses: 10,
         allowed_domains: ['docs.example.com', 'help.example.com'],
         blocked_domains: ['ads.example.com'],
         citations: { enabled: true },
+        defer_loading: true,
         max_content_tokens: 50000,
         cache_control: { type: 'ephemeral' },
       });
@@ -1198,10 +1240,12 @@ describe('Anthropic utilities', () => {
       const webFetchToolV2: WebFetchToolConfigV2 = {
         type: 'web_fetch_20260309',
         name: 'web_fetch',
+        allowed_callers: ['direct'],
         max_uses: 10,
         allowed_domains: ['docs.example.com'],
         blocked_domains: ['ads.example.com'],
         citations: { enabled: true },
+        defer_loading: true,
         max_content_tokens: 50000,
         cache_control: { type: 'ephemeral' },
         use_cache: true,
@@ -1213,14 +1257,82 @@ describe('Anthropic utilities', () => {
       expect(processedTools[0]).toMatchObject({
         type: 'web_fetch_20260309',
         name: 'web_fetch',
+        allowed_callers: ['direct'],
         max_uses: 10,
         allowed_domains: ['docs.example.com'],
         blocked_domains: ['ads.example.com'],
         citations: { enabled: true },
+        defer_loading: true,
         max_content_tokens: 50000,
         cache_control: { type: 'ephemeral' },
         use_cache: true,
       });
+    });
+
+    it('should process web_fetch_20260209 tool with supported options', () => {
+      const webFetchTool: WebFetchToolConfig20260209 = {
+        type: 'web_fetch_20260209',
+        name: 'web_fetch',
+        allowed_callers: ['direct'],
+        allowed_domains: ['docs.example.com'],
+        defer_loading: true,
+        max_uses: 2,
+      };
+
+      const { processedTools, requiredBetaFeatures } = processAnthropicTools([webFetchTool]);
+
+      expect(processedTools).toHaveLength(1);
+      expect(processedTools[0]).toMatchObject({
+        type: 'web_fetch_20260209',
+        name: 'web_fetch',
+        allowed_callers: ['direct'],
+        allowed_domains: ['docs.example.com'],
+        defer_loading: true,
+        max_uses: 2,
+      });
+      expect(requiredBetaFeatures).toEqual([]);
+    });
+
+    it('should process web_search_20260209 tool with supported options', () => {
+      const webSearchTool: WebSearchToolConfig20260209 = {
+        type: 'web_search_20260209',
+        name: 'web_search',
+        allowed_callers: ['direct'],
+        blocked_domains: ['ads.example.com'],
+        defer_loading: true,
+        max_uses: 4,
+      };
+
+      const { processedTools, requiredBetaFeatures } = processAnthropicTools([webSearchTool]);
+
+      expect(processedTools).toHaveLength(1);
+      expect(processedTools[0]).toMatchObject({
+        type: 'web_search_20260209',
+        name: 'web_search',
+        allowed_callers: ['direct'],
+        blocked_domains: ['ads.example.com'],
+        defer_loading: true,
+        max_uses: 4,
+      });
+      expect(requiredBetaFeatures).toEqual([]);
+    });
+
+    it('should add structured-outputs beta for strict server tools', () => {
+      const webSearchTool: WebSearchToolConfig = {
+        type: 'web_search_20250305',
+        name: 'web_search',
+        strict: true,
+      };
+
+      const { processedTools, requiredBetaFeatures } = processAnthropicTools([webSearchTool]);
+
+      expect(processedTools).toHaveLength(1);
+      expect(processedTools[0]).toMatchObject({
+        type: 'web_search_20250305',
+        name: 'web_search',
+        strict: true,
+      });
+      expect(requiredBetaFeatures).toEqual(['structured-outputs-2025-11-13']);
     });
 
     it('should handle mix of v1 and v2 web fetch tools', () => {
