@@ -1214,7 +1214,7 @@ describe('Anthropic utilities', () => {
       expect(requiredBetaFeatures).toHaveLength(2);
     });
 
-    it('should process web_fetch_20260309 tool with use_cache and add beta feature', () => {
+    it('should process web_fetch_20260309 tool with use_cache (GA, no beta header)', () => {
       const webFetchToolV2: WebFetchToolConfigV2 = {
         type: 'web_fetch_20260309',
         name: 'web_fetch',
@@ -1233,7 +1233,7 @@ describe('Anthropic utilities', () => {
         use_cache: false,
         allowed_domains: ['example.com'],
       });
-      expect(requiredBetaFeatures).toEqual(['web-fetch-2025-09-10']);
+      expect(requiredBetaFeatures).toEqual([]);
     });
 
     it('should process web_fetch_20260309 tool with all optional parameters', () => {
@@ -1349,9 +1349,8 @@ describe('Anthropic utilities', () => {
       const { processedTools, requiredBetaFeatures } = processAnthropicTools([v1Tool, v2Tool]);
 
       expect(processedTools).toHaveLength(2);
-      expect(requiredBetaFeatures).toContain('web-fetch-2025-09-10');
-      // Both v1 and v2 use the same beta header
-      expect(requiredBetaFeatures).toHaveLength(1);
+      // Only v1 (web_fetch_20250910) requires the beta header; v2 (20260309) is GA
+      expect(requiredBetaFeatures).toEqual(['web-fetch-2025-09-10']);
     });
   });
 

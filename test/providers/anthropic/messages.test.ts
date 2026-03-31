@@ -892,6 +892,84 @@ describe('AnthropicMessagesProvider', () => {
       });
     });
 
+    it('should omit temperature when both temperature and top_p are set', async () => {
+      const provider = createProvider('claude-3-5-sonnet-20241022', {
+        config: {
+          temperature: 0.7,
+          top_p: 0.9,
+        },
+      });
+
+      vi.spyOn(provider.anthropic.messages, 'create').mockResolvedValue({
+        content: [{ type: 'text', text: 'Test response' }],
+      } as Anthropic.Messages.Message);
+
+      await provider.callApi('Test prompt');
+
+      const callArgs = vi.mocked(provider.anthropic.messages.create).mock.calls[0][0];
+      // temperature must be omitted (Anthropic rejects temperature + top_p)
+      expect(callArgs).not.toHaveProperty('temperature');
+      expect(callArgs).toMatchObject({ top_p: 0.9 });
+    });
+
+    it('should forward cache tokens to cost calculation and token usage', async () => {
+      const provider = createProvider('claude-3-5-sonnet-20241022');
+
+      vi.spyOn(provider.anthropic.messages, 'create').mockResolvedValue({
+        content: [{ type: 'text', text: 'Test response' }],
+        stop_reason: 'end_turn',
+        usage: {
+          input_tokens: 50,
+          output_tokens: 20,
+          cache_read_input_tokens: 100,
+          cache_creation_input_tokens: 30,
+          server_tool_use: null,
+        },
+      } as unknown as Anthropic.Messages.Message);
+
+      const result = await provider.callApi('Test prompt');
+
+      // Verify token usage includes cache tokens
+      expect(result.tokenUsage).toMatchObject({
+        prompt: 180, // 50 + 100 + 30
+        completion: 20,
+        total: 200, // 180 + 20
+        completionDetails: {
+          cacheReadInputTokens: 100,
+          cacheCreationInputTokens: 30,
+        },
+      });
+
+      // Verify cost is calculated (should be defined for known model)
+      expect(result.cost).toBeDefined();
+      expect(typeof result.cost).toBe('number');
+      expect(result.cost).toBeGreaterThan(0);
+    });
+
+    it('should forward cache tokens from cached responses', async () => {
+      const provider = createProvider('claude-3-5-sonnet-20241022');
+
+      // First call populates cache
+      vi.spyOn(provider.anthropic.messages, 'create').mockResolvedValue({
+        content: [{ type: 'text', text: 'Cached response' }],
+        stop_reason: 'end_turn',
+        usage: {
+          input_tokens: 50,
+          output_tokens: 20,
+          cache_read_input_tokens: 100,
+          cache_creation_input_tokens: 0,
+          server_tool_use: null,
+        },
+      } as unknown as Anthropic.Messages.Message);
+
+      await provider.callApi('Cache test prompt');
+
+      // Second call should return cached response with cache-aware cost
+      const cachedResult = await provider.callApi('Cache test prompt');
+      expect(cachedResult.cached).toBe(true);
+      expect(cachedResult.cost).toBeDefined();
+    });
+
     it('should include beta features header when specified', async () => {
       const provider = createProvider('claude-3-7-sonnet-20250219', {
         config: {

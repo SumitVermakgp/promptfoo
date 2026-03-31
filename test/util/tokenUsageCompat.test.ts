@@ -158,6 +158,33 @@ describe('tokenUsageCompat', () => {
       });
     });
 
+    it('should extract cache token completion details attributes', () => {
+      const span: SpanData = {
+        spanId: 'span-1',
+        name: 'test',
+        startTime: 0,
+        attributes: {
+          'gen_ai.usage.input_tokens': 100,
+          'gen_ai.usage.output_tokens': 50,
+          'gen_ai.usage.total_tokens': 150,
+          'gen_ai.usage.cache_read_input_tokens': 200,
+          'gen_ai.usage.cache_creation_input_tokens': 30,
+        },
+      };
+
+      const usage = extractUsageFromSpan(span);
+      expect(usage).toEqual({
+        numRequests: 1,
+        prompt: 100,
+        completion: 50,
+        total: 150,
+        completionDetails: {
+          cacheReadInputTokens: 200,
+          cacheCreationInputTokens: 30,
+        },
+      });
+    });
+
     it('should ignore non-numeric attribute values', () => {
       const span: SpanData = {
         spanId: 'span-1',

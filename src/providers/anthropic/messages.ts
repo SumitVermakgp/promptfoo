@@ -246,6 +246,13 @@ export class AnthropicMessagesProvider extends AnthropicGenericProvider {
       resolvedTopP = thinkingEnabled ? Math.max(0.95, Math.min(1.0, config.top_p)) : config.top_p;
     }
 
+    // Warn when temperature is silently omitted due to top_p (even without thinking)
+    if (config.temperature != null && resolvedTopP != null && !thinkingEnabled) {
+      logger.warn(
+        'temperature is incompatible with top_p on Anthropic and will be omitted. Remove one of these parameters.',
+      );
+    }
+
     const shouldStream = config.stream ?? false;
     const params: Anthropic.MessageCreateParams = {
       model: this.modelName,

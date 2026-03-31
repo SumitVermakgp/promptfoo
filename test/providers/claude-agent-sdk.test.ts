@@ -999,6 +999,25 @@ describe('ClaudeCodeSDKProvider', () => {
           });
         });
 
+        it('with taskBudget configuration', async () => {
+          mockQuery.mockReturnValue(createMockResponse('Response'));
+
+          const provider = new ClaudeCodeSDKProvider({
+            config: {
+              task_budget: { total: 50000 },
+            },
+            env: { ANTHROPIC_API_KEY: 'test-api-key' },
+          });
+          await provider.callApi('Test prompt');
+
+          expect(mockQuery).toHaveBeenCalledWith({
+            prompt: 'Test prompt',
+            options: expect.objectContaining({
+              taskBudget: { total: 50000 },
+            }),
+          });
+        });
+
         it('with additionalDirectories configuration', async () => {
           mockQuery.mockReturnValue(createMockResponse('Response'));
 

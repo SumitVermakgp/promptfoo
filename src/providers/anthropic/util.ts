@@ -378,20 +378,20 @@ export function processAnthropicTools(tools: (Anthropic.Tool | AnthropicToolConf
   processedTools: (
     | Anthropic.Tool
     | Anthropic.Beta.Messages.BetaWebFetchTool20250910
-    | Anthropic.Beta.Messages.BetaWebFetchTool20260209
-    | Anthropic.Beta.Messages.BetaWebFetchTool20260309
+    | Anthropic.Messages.WebFetchTool20260209
+    | Anthropic.Messages.WebFetchTool20260309
     | Anthropic.Beta.Messages.BetaWebSearchTool20250305
-    | Anthropic.Beta.Messages.BetaWebSearchTool20260209
+    | Anthropic.Messages.WebSearchTool20260209
   )[];
   requiredBetaFeatures: string[];
 } {
   const processedTools: (
     | Anthropic.Tool
     | Anthropic.Beta.Messages.BetaWebFetchTool20250910
-    | Anthropic.Beta.Messages.BetaWebFetchTool20260209
-    | Anthropic.Beta.Messages.BetaWebFetchTool20260309
+    | Anthropic.Messages.WebFetchTool20260209
+    | Anthropic.Messages.WebFetchTool20260309
     | Anthropic.Beta.Messages.BetaWebSearchTool20250305
-    | Anthropic.Beta.Messages.BetaWebSearchTool20260209
+    | Anthropic.Messages.WebSearchTool20260209
   )[] = [];
   const requiredBetaFeatures: string[] = [];
 
@@ -411,7 +411,6 @@ export function processAnthropicTools(tools: (Anthropic.Tool | AnthropicToolConf
         processedTools.push(transformWebFetchTool20260209(tool as WebFetchToolConfig20260209));
       } else if (tool.type === 'web_fetch_20260309') {
         processedTools.push(transformWebFetchToolV2(tool as WebFetchToolConfigV2));
-        addRequiredBetaFeature('web-fetch-2025-09-10');
       } else if (tool.type === 'web_search_20250305') {
         processedTools.push(transformWebSearchTool(tool as WebSearchToolConfig));
         // Web search doesn't need beta header in latest SDK
@@ -446,29 +445,29 @@ export function processAnthropicTools(tools: (Anthropic.Tool | AnthropicToolConf
 function applyWebFetchFields(
   tool:
     | Anthropic.Beta.Messages.BetaWebFetchTool20250910
-    | Anthropic.Beta.Messages.BetaWebFetchTool20260209
-    | Anthropic.Beta.Messages.BetaWebFetchTool20260309,
+    | Anthropic.Messages.WebFetchTool20260209
+    | Anthropic.Messages.WebFetchTool20260309,
   config: WebFetchToolConfig | WebFetchToolConfig20260209 | WebFetchToolConfigV2,
 ): void {
-  if (config.allowed_callers) {
+  if (config.allowed_callers !== undefined) {
     tool.allowed_callers = config.allowed_callers;
   }
   if (config.max_uses !== undefined) {
     tool.max_uses = config.max_uses;
   }
-  if (config.allowed_domains) {
+  if (config.allowed_domains !== undefined) {
     tool.allowed_domains = config.allowed_domains;
   }
-  if (config.blocked_domains) {
+  if (config.blocked_domains !== undefined) {
     tool.blocked_domains = config.blocked_domains;
   }
-  if (config.citations) {
+  if (config.citations !== undefined) {
     tool.citations = config.citations;
   }
   if (config.max_content_tokens !== undefined) {
     tool.max_content_tokens = config.max_content_tokens;
   }
-  if (config.cache_control) {
+  if (config.cache_control !== undefined) {
     tool.cache_control = config.cache_control;
   }
   if (config.defer_loading !== undefined) {
@@ -492,8 +491,8 @@ function transformWebFetchTool(
 
 function transformWebFetchTool20260209(
   config: WebFetchToolConfig20260209,
-): Anthropic.Beta.Messages.BetaWebFetchTool20260209 {
-  const tool: Anthropic.Beta.Messages.BetaWebFetchTool20260209 = {
+): Anthropic.Messages.WebFetchTool20260209 {
+  const tool: Anthropic.Messages.WebFetchTool20260209 = {
     type: 'web_fetch_20260209',
     name: 'web_fetch',
   };
@@ -503,8 +502,8 @@ function transformWebFetchTool20260209(
 
 function transformWebFetchToolV2(
   config: WebFetchToolConfigV2,
-): Anthropic.Beta.Messages.BetaWebFetchTool20260309 {
-  const tool: Anthropic.Beta.Messages.BetaWebFetchTool20260309 = {
+): Anthropic.Messages.WebFetchTool20260309 {
+  const tool: Anthropic.Messages.WebFetchTool20260309 = {
     type: 'web_fetch_20260309',
     name: 'web_fetch',
   };
@@ -518,19 +517,19 @@ function transformWebFetchToolV2(
 function applyWebSearchFields(
   tool:
     | Anthropic.Beta.Messages.BetaWebSearchTool20250305
-    | Anthropic.Beta.Messages.BetaWebSearchTool20260209,
+    | Anthropic.Messages.WebSearchTool20260209,
   config: WebSearchToolConfig | WebSearchToolConfig20260209,
 ): void {
-  if (config.allowed_callers) {
+  if (config.allowed_callers !== undefined) {
     tool.allowed_callers = config.allowed_callers;
   }
-  if (config.allowed_domains) {
+  if (config.allowed_domains !== undefined) {
     tool.allowed_domains = config.allowed_domains;
   }
-  if (config.blocked_domains) {
+  if (config.blocked_domains !== undefined) {
     tool.blocked_domains = config.blocked_domains;
   }
-  if (config.cache_control) {
+  if (config.cache_control !== undefined) {
     tool.cache_control = config.cache_control;
   }
   if (config.defer_loading !== undefined) {
@@ -542,7 +541,7 @@ function applyWebSearchFields(
   if (config.strict !== undefined) {
     tool.strict = config.strict;
   }
-  if (config.user_location) {
+  if (config.user_location !== undefined) {
     tool.user_location = config.user_location;
   }
 }
@@ -563,8 +562,8 @@ function transformWebSearchTool(
 
 function transformWebSearchTool20260209(
   config: WebSearchToolConfig20260209,
-): Anthropic.Beta.Messages.BetaWebSearchTool20260209 {
-  const tool: Anthropic.Beta.Messages.BetaWebSearchTool20260209 = {
+): Anthropic.Messages.WebSearchTool20260209 {
+  const tool: Anthropic.Messages.WebSearchTool20260209 = {
     type: 'web_search_20260209',
     name: 'web_search',
   };

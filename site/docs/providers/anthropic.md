@@ -72,11 +72,12 @@ Claude models are available across multiple platforms. Here's how the model name
 | --------------- | --------------------- | ----------------------------------------------------------------------------------- |
 | apiKey          | ANTHROPIC_API_KEY     | Your API key from Anthropic                                                         |
 | apiBaseUrl      | ANTHROPIC_BASE_URL    | The base URL for requests to the Anthropic API                                      |
-| temperature     | ANTHROPIC_TEMPERATURE | Controls the randomness of the output (default: 0)                                  |
+| temperature     | ANTHROPIC_TEMPERATURE | Controls the randomness of the output (default: 0). Omitted when `top_p` is set.    |
 | max_tokens      | ANTHROPIC_MAX_TOKENS  | The maximum length of the generated text (default: 1024)                            |
-| top_p           | -                     | Controls nucleus sampling, affecting the randomness of the output                   |
+| top_p           | -                     | Controls nucleus sampling. Mutually exclusive with `temperature`.                   |
 | top_k           | -                     | Only sample from the top K options for each subsequent token                        |
 | stop_sequences  | -                     | Array of strings that will stop generation when encountered                         |
+| stream          | -                     | Enable streaming (required when `max_tokens` > 21,333)                              |
 | tools           | -                     | An array of tool or function definitions for the model to call                      |
 | tool_choice     | -                     | An object specifying the tool to call                                               |
 | effort          | -                     | Output effort level: `low`, `medium`, `high`, or `max`                              |
@@ -233,19 +234,20 @@ providers:
 
 **Web Fetch Tool Configuration Options:**
 
-| Parameter            | Type     | Description                                                                                  |
-| -------------------- | -------- | -------------------------------------------------------------------------------------------- |
-| `type`               | string   | `web_fetch_20250910`, `web_fetch_20260209`, or `web_fetch_20260309` (adds `use_cache`)       |
-| `name`               | string   | Must be `web_fetch`                                                                          |
-| `max_uses`           | number   | Maximum number of web fetches per request (optional)                                         |
-| `allowed_callers`    | string[] | Restrict which tool callers may invoke the server tool (optional)                            |
-| `allowed_domains`    | string[] | List of domains to allow fetching from (optional, mutually exclusive with `blocked_domains`) |
-| `blocked_domains`    | string[] | List of domains to block fetching from (optional, mutually exclusive with `allowed_domains`) |
-| `defer_loading`      | boolean  | Load the tool lazily instead of including it in the initial system prompt (optional)         |
-| `citations`          | object   | Enable citations with `{ enabled: true }` (optional)                                         |
-| `max_content_tokens` | number   | Maximum tokens for web content (optional)                                                    |
-| `strict`             | boolean  | Enable strict schema validation for tool names and inputs (optional)                         |
-| `use_cache`          | boolean  | Whether to use cached content (`web_fetch_20260309` only, optional)                          |
+| Parameter            | Type     | Description                                                                                   |
+| -------------------- | -------- | --------------------------------------------------------------------------------------------- |
+| `type`               | string   | `web_fetch_20250910` (beta), `web_fetch_20260209`, or `web_fetch_20260309` (adds `use_cache`) |
+| `name`               | string   | Must be `web_fetch`                                                                           |
+| `max_uses`           | number   | Maximum number of web fetches per request (optional)                                          |
+| `allowed_callers`    | string[] | Restrict which tool callers may invoke the server tool (optional)                             |
+| `allowed_domains`    | string[] | List of domains to allow fetching from (optional, mutually exclusive with `blocked_domains`)  |
+| `blocked_domains`    | string[] | List of domains to block fetching from (optional, mutually exclusive with `allowed_domains`)  |
+| `defer_loading`      | boolean  | Load the tool lazily instead of including it in the initial system prompt (optional)          |
+| `citations`          | object   | Enable citations with `{ enabled: true }` (optional)                                          |
+| `max_content_tokens` | number   | Maximum tokens for web content (optional)                                                     |
+| `cache_control`      | object   | Apply Anthropic cache control to the tool definition (optional)                               |
+| `strict`             | boolean  | Enable strict schema validation for tool names and inputs (optional)                          |
+| `use_cache`          | boolean  | Whether to use cached content (`web_fetch_20260309` only, optional)                           |
 
 ##### Web Search Tool
 
@@ -265,7 +267,7 @@ providers:
 
 | Parameter         | Type     | Description                                                                                |
 | ----------------- | -------- | ------------------------------------------------------------------------------------------ |
-| `type`            | string   | `web_search_20250305` or `web_search_20260209`                                             |
+| `type`            | string   | `web_search_20250305` (beta) or `web_search_20260209`                                      |
 | `name`            | string   | Must be `web_search`                                                                       |
 | `max_uses`        | number   | Maximum number of searches per request (optional)                                          |
 | `allowed_callers` | string[] | Restrict which tool callers may invoke the server tool (optional)                          |
@@ -487,7 +489,9 @@ When thinking is enabled or adaptive:
 - The tokens used for thinking count towards your max_tokens limit
 - A specialized 28 or 29 token system prompt is automatically included
 - Previous turn thinking blocks are ignored and not counted as input tokens
-- Thinking is not compatible with temperature, top_p, or top_k modifications
+- `temperature` and `top_k` are incompatible with thinking and will be omitted with a warning
+- `top_p` is clamped to the range [0.95, 1.0] when thinking is enabled
+- Forced tool use (`tool_choice` type `any` or `tool`) is incompatible with thinking and will be omitted with a warning; use `auto` instead
 
 Example response with thinking enabled:
 
