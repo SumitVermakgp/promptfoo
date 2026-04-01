@@ -1527,13 +1527,16 @@ Third line`;
       );
     });
 
-    it('should fall back to auto for malformed native toolChoice objects', async () => {
+    it.each([
+      { tool: null },
+      { tool: {} },
+    ])('should fall back to auto for malformed native toolChoice objects: %j', async (toolChoice) => {
       mockSend.mockReset();
       const provider = new AwsBedrockConverseProvider('anthropic.claude-3-5-sonnet-20241022-v2:0', {
         config: {
           region: 'us-east-1',
           tools: [{ name: 'test_tool', description: 'Test' }],
-          toolChoice: { tool: null } as any,
+          toolChoice: toolChoice as any,
         },
       });
 
