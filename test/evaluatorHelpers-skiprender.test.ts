@@ -70,6 +70,29 @@ describe('renderPrompt with skipRenderVars', () => {
     expect(result).toContain('Payload: {{dangerous}}');
   });
 
+  it('should not resolve nested variable references inside skipRenderVars values', async () => {
+    const prompt = { raw: 'User input: {{user_input}}', label: 'test' };
+    const vars = {
+      secret: 'do-not-inline',
+      user_input: '{{secret}}',
+    };
+
+    const result = await renderPrompt(prompt, vars, {}, undefined, ['user_input']);
+
+    expect(result).toBe('User input: {{secret}}');
+  });
+
+  it('should preserve trailing newlines inside skipRenderVars values', async () => {
+    const prompt = { raw: 'User input: {{user_input}}', label: 'test' };
+    const vars = {
+      user_input: 'payload-with-newline\n',
+    };
+
+    const result = await renderPrompt(prompt, vars, {}, undefined, ['user_input']);
+
+    expect(result).toBe('User input: payload-with-newline\n');
+  });
+
   it('should handle redteam prompts with undefined purpose and trim filter', async () => {
     // This is the exact scenario from Discord issue:
     // Redteam generates prompts containing {{purpose | trim}} which causes:

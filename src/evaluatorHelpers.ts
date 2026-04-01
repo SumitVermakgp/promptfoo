@@ -50,7 +50,10 @@ export async function extractTextFromPDF(pdfPath: string): Promise<string> {
   }
 }
 
-export function resolveVariables(variables: Record<string, VarValue>): Record<string, VarValue> {
+export function resolveVariables(
+  variables: Record<string, VarValue>,
+  skipResolveVars?: string[],
+): Record<string, VarValue> {
   let resolved = true;
   const regex = /\{\{\s*(\w+)\s*\}\}/; // Matches {{variableName}}, {{ variableName }}, etc.
 
@@ -58,7 +61,7 @@ export function resolveVariables(variables: Record<string, VarValue>): Record<st
   do {
     resolved = true;
     for (const key of Object.keys(variables)) {
-      if (typeof variables[key] !== 'string') {
+      if (skipResolveVars?.includes(key) || typeof variables[key] !== 'string') {
         continue;
       }
       const value = variables[key] as string;
@@ -387,12 +390,12 @@ export async function renderPrompt(
 
   // Remove any trailing newlines from vars, as this tends to be a footgun for JSON prompts.
   for (const key of Object.keys(vars)) {
-    if (typeof vars[key] === 'string') {
+    if (typeof vars[key] === 'string' && !skipRenderVars?.includes(key)) {
       vars[key] = (vars[key] as string).replace(/\n$/, '');
     }
   }
   // Resolve variable mappings
-  resolveVariables(vars);
+  resolveVariables(vars, skipRenderVars);
   // Third party integrations
   if (prompt.raw.startsWith('portkey://')) {
     const portKeyResult = await getPortkeyPrompt(prompt.raw.slice('portkey://'.length), vars);
