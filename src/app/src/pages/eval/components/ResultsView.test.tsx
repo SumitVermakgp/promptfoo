@@ -898,8 +898,9 @@ describe('ResultsView', () => {
     );
 
     expect(screen.queryByTestId('results-charts')).toBeNull();
-    expect(screen.getByText('Show Charts')).toBeInTheDocument();
-    expect(screen.getByText('Charts are unavailable for this evaluation')).not.toBeVisible();
+    expect(screen.queryByText('Show Charts')).toBeNull();
+    expect(screen.queryByText('Hide Charts')).toBeNull();
+    expect(screen.getByText('Charts are unavailable for this evaluation')).toBeInTheDocument();
   });
 
   it('shows an explanatory message when scores are all the same binary edge value', async () => {
@@ -968,13 +969,9 @@ describe('ResultsView', () => {
       />,
     );
 
-    const showChartsButton = screen.getByText('Show Charts');
-    expect(showChartsButton).toBeInTheDocument();
+    expect(screen.queryByText('Show Charts')).toBeNull();
+    expect(screen.queryByText('Hide Charts')).toBeNull();
     expect(screen.queryByTestId('results-charts')).toBeNull();
-    expect(screen.getByText('Charts are unavailable for this evaluation')).not.toBeVisible();
-
-    await userEvent.click(showChartsButton);
-
     expect(screen.getByText('Charts are unavailable for this evaluation')).toBeInTheDocument();
     expect(
       screen.getByText(
@@ -1075,13 +1072,8 @@ describe('ResultsView Chart Rendering', () => {
       />,
     );
 
-    const showChartsButton = screen.queryByText('Show Charts');
-    if (showChartsButton) {
-      await userEvent.click(showChartsButton);
-    } else {
-      expect(screen.getByText('Hide Charts')).toBeInTheDocument();
-    }
-
+    expect(screen.queryByText('Show Charts')).toBeNull();
+    expect(screen.queryByText('Hide Charts')).toBeNull();
     expect(screen.queryByTestId('results-charts')).toBeNull();
     expect(screen.getByText('Charts are unavailable for this evaluation')).toBeInTheDocument();
     expect(
@@ -1138,13 +1130,8 @@ describe('ResultsView Chart Rendering', () => {
       );
     });
 
-    const showChartsButton = screen.queryByText('Show Charts');
-    if (showChartsButton) {
-      await userEvent.click(showChartsButton);
-    } else {
-      expect(screen.getByText('Hide Charts')).toBeInTheDocument();
-    }
-
+    expect(screen.queryByText('Show Charts')).toBeNull();
+    expect(screen.queryByText('Hide Charts')).toBeNull();
     expect(screen.queryByTestId('results-charts')).toBeNull();
     expect(screen.getByText('Charts are unavailable for this evaluation')).toBeInTheDocument();
     expect(
@@ -1203,13 +1190,8 @@ describe('ResultsView Chart Rendering', () => {
       );
     });
 
-    const showChartsButton = screen.queryByText('Show Charts');
-    if (showChartsButton) {
-      await userEvent.click(showChartsButton);
-    } else {
-      expect(screen.getByText('Hide Charts')).toBeInTheDocument();
-    }
-
+    expect(screen.queryByText('Show Charts')).toBeNull();
+    expect(screen.queryByText('Hide Charts')).toBeNull();
     expect(screen.queryByTestId('results-charts')).toBeNull();
     expect(screen.getByText('Charts are unavailable for this evaluation')).toBeInTheDocument();
     expect(
@@ -1323,8 +1305,10 @@ describe('ResultsView Chart Rendering', () => {
       />,
     );
 
-    expect(screen.getByText('Show Charts')).toBeInTheDocument();
+    expect(screen.queryByText('Show Charts')).toBeNull();
+    expect(screen.queryByText('Hide Charts')).toBeNull();
     expect(screen.queryByTestId('results-charts')).toBeNull();
+    expect(screen.getByText('Charts are unavailable for this evaluation')).toBeInTheDocument();
 
     tableStoreValue = {
       ...tableStoreValue,
@@ -1479,9 +1463,10 @@ describe('ResultsView Chart Rendering', () => {
       </MemoryRouter>,
     );
 
-    expect(screen.getByText('Show Charts')).toBeInTheDocument();
+    expect(screen.queryByText('Show Charts')).toBeNull();
+    expect(screen.queryByText('Hide Charts')).toBeNull();
     expect(screen.queryByTestId('results-charts')).toBeNull();
-    expect(screen.getByText('Charts are unavailable for this evaluation')).not.toBeVisible();
+    expect(screen.getByText('Charts are unavailable for this evaluation')).toBeInTheDocument();
   });
 
   it('shows an explanatory message if there are no valid scores', async () => {
@@ -1533,13 +1518,8 @@ describe('ResultsView Chart Rendering', () => {
       />,
     );
 
-    const showChartsButton = screen.queryByText('Show Charts');
-    if (showChartsButton) {
-      await userEvent.click(showChartsButton);
-    } else {
-      expect(screen.getByText('Hide Charts')).toBeInTheDocument();
-    }
-
+    expect(screen.queryByText('Show Charts')).toBeNull();
+    expect(screen.queryByText('Hide Charts')).toBeNull();
     expect(screen.queryByTestId('results-charts')).toBeNull();
     expect(screen.getByText('Charts are unavailable for this evaluation')).toBeInTheDocument();
     expect(
