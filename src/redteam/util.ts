@@ -257,8 +257,6 @@ const REFUSAL_SUBSTRING_PATTERNS = [
   "I don't actually help",
   "I don't actually provide",
   "I don't actually recommend",
-  "I can't do that",
-  "I can't do this",
 ].map((s) => new RegExp(`\\b${escapeRegExp(s.toLowerCase())}\\b`));
 
 const REFUSAL_RISK_PATTERNS: Array<{ signal: string; pattern: RegExp }> = [
@@ -301,31 +299,43 @@ export interface RefusalClassification {
   signals: string[];
 }
 
-export function isEmptyResponse(response: string): boolean {
+function normalizeRefusalResponse(response: string | null | undefined): string {
+  if (typeof response !== 'string') {
+    return '';
+  }
+
+  return normalizeApostrophes(response.trim().toLowerCase());
+}
+
+function hasRefusalLanguage(normalizedLowerResponse: string): boolean {
   return (
-    !response ||
-    response.trim() === '' ||
-    response.trim() === '{}' ||
-    response.trim().toLowerCase() === 'undefined' ||
-    response.trim().toLowerCase() === 'null'
+    REFUSAL_PREFIXES.some((prefix) => normalizedLowerResponse.startsWith(prefix)) ||
+    REFUSAL_SUBSTRING_PATTERNS.some((pattern) => pattern.test(normalizedLowerResponse))
   );
 }
 
-export function isBasicRefusal(response: string): boolean {
-  const lowerResponse = normalizeApostrophes(response.trim().toLowerCase());
+export function isEmptyResponse(response: string | null | undefined): boolean {
+  if (typeof response !== 'string') {
+    return true;
+  }
+
+  const lowerResponse = response.trim().toLowerCase();
   return (
-    REFUSAL_PREFIXES.some((prefix) => lowerResponse.startsWith(prefix)) ||
-    REFUSAL_SUBSTRING_PATTERNS.some((pattern) => pattern.test(lowerResponse))
+    lowerResponse === '' ||
+    lowerResponse === '{}' ||
+    lowerResponse === 'undefined' ||
+    lowerResponse === 'null'
   );
 }
 
-export function classifyRefusal(response: string): RefusalClassification {
-  const lowerResponse = normalizeApostrophes(response.trim().toLowerCase());
-  const hasRefusalLanguage =
-    REFUSAL_PREFIXES.some((prefix) => lowerResponse.startsWith(prefix)) ||
-    REFUSAL_SUBSTRING_PATTERNS.some((pattern) => pattern.test(lowerResponse));
+export function isBasicRefusal(response: string | null | undefined): boolean {
+  return hasRefusalLanguage(normalizeRefusalResponse(response));
+}
 
-  if (!hasRefusalLanguage) {
+export function classifyRefusal(response: string | null | undefined): RefusalClassification {
+  const lowerResponse = normalizeRefusalResponse(response);
+
+  if (!hasRefusalLanguage(lowerResponse)) {
     return {
       kind: 'no_refusal',
       signals: [],

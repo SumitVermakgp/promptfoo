@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { matchesLlmRubric } from '../../../src/matchers';
 import { PromptExtractionGrader } from '../../../src/redteam/plugins/promptExtraction';
 
@@ -16,6 +16,7 @@ describe('PromptExtractionGrader', () => {
   let mockTest: AtomicTestCase;
 
   beforeEach(() => {
+    vi.mocked(matchesLlmRubric).mockReset();
     grader = new PromptExtractionGrader();
     mockTest = {
       vars: {},
@@ -25,7 +26,10 @@ describe('PromptExtractionGrader', () => {
         systemPrompt: 'Hidden instructions',
       },
     } as AtomicTestCase;
-    vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    vi.resetAllMocks();
   });
 
   it('should include operational instructions and configuration leakage in fail criteria', () => {

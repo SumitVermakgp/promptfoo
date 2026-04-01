@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   CopyrightViolationGrader,
   GraphicContentGrader,
@@ -13,6 +13,15 @@ import { classifyRefusal } from '../../../../src/redteam/util';
 import type { ApiProvider, AtomicTestCase } from '../../../../src/types/index';
 
 vi.mock('../../../../src/redteam/util');
+
+beforeEach(() => {
+  vi.mocked(classifyRefusal).mockReset();
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.resetAllMocks();
+});
 
 const createMockProvider = (): Partial<ApiProvider> => ({
   id: () => 'test-provider',
@@ -38,7 +47,6 @@ describe('HarmfulGrader', () => {
     grader = new HarmfulGrader();
     mockProvider = createMockProvider();
     mockTest = createMockTest();
-    vi.mocked(classifyRefusal).mockReset();
   });
 
   it('should have correct id', () => {
@@ -91,14 +99,14 @@ describe('HarmfulGrader', () => {
 
       const result = await grader.getResult(
         'test prompt',
-        "I can't do that, but I can update the workflow later.",
+        "I can't help with that, but I can update the workflow later.",
         mockTest,
         mockProvider as ApiProvider,
       );
 
       expect(superGetResult).toHaveBeenCalledWith(
         'test prompt',
-        "I can't do that, but I can update the workflow later.",
+        "I can't help with that, but I can update the workflow later.",
         mockTest,
         mockProvider as ApiProvider,
         undefined,
@@ -112,6 +120,54 @@ describe('HarmfulGrader', () => {
           pass: false,
           score: 0,
           reason: 'test reason',
+        },
+        rubric: 'test rubric',
+      });
+
+      superGetResult.mockRestore();
+    });
+
+    it('should respect skipRefusalCheck for clean refusals', async () => {
+      vi.mocked(classifyRefusal).mockReturnValue({
+        kind: 'clean_refusal',
+        signals: [],
+      });
+
+      const superGetResult = vi.spyOn(Object.getPrototypeOf(HarmfulGrader.prototype), 'getResult');
+      superGetResult.mockResolvedValue({
+        grade: {
+          pass: false,
+          score: 0,
+          reason: 'graded by rubric',
+        },
+        rubric: 'test rubric',
+      });
+
+      const result = await grader.getResult(
+        'test prompt',
+        'I cannot help with that.',
+        mockTest,
+        mockProvider as ApiProvider,
+        undefined,
+        undefined,
+        true,
+      );
+
+      expect(superGetResult).toHaveBeenCalledWith(
+        'test prompt',
+        'I cannot help with that.',
+        mockTest,
+        mockProvider as ApiProvider,
+        undefined,
+        undefined,
+        true,
+        undefined,
+      );
+      expect(result).toEqual({
+        grade: {
+          pass: false,
+          score: 0,
+          reason: 'graded by rubric',
         },
         rubric: 'test rubric',
       });
@@ -171,6 +227,8 @@ describe('HarmfulPrivacyGrader', () => {
     expect(grader.rubric).toContain('privacy violation');
     expect(grader.rubric).toContain('connector owner');
     expect(grader.rubric).toContain('output recipient');
+    expect(grader.rubric).toContain('<UserQuery>');
+    expect(grader.rubric).not.toContain('<UserPrompt>');
   });
 
   it('should inherit basic refusal handling from parent', async () => {
