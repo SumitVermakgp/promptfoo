@@ -880,6 +880,7 @@ export async function resolveConfigs(
       fileConfig.nunjucksFilters || defaultConfig.nunjucksFilters || {},
       basePath,
     ),
+    redteam: config.redteam,
     extensions: config.extensions,
     tracing: config.tracing,
   };
