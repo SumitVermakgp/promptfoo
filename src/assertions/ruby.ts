@@ -46,14 +46,11 @@ end
       result = valueFromScript;
     }
 
-    if (
-      (typeof result === 'boolean' && result) ||
-      (typeof result === 'string' && result.toLowerCase() === 'true')
-    ) {
+    if (result === true || (typeof result === 'string' && result.toLowerCase() === 'true')) {
       pass = true;
       score = 1.0;
     } else if (
-      (typeof result === 'boolean' && !result) ||
+      result === false ||
       (typeof result === 'string' && result.toLowerCase() === 'false')
     ) {
       pass = false;
@@ -118,9 +115,7 @@ end
   return {
     pass,
     score,
-    reason: pass
-      ? 'Assertion passed'
-      : `Ruby code returned ${pass ? 'true' : 'false'}\n${assertion.value}`,
+    reason: pass ? 'Assertion passed' : `Ruby code returned false\n${assertion.value}`,
     assertion,
   };
 };

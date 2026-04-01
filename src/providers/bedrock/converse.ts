@@ -304,7 +304,7 @@ function convertToolChoiceToConverseFormat(
   if (toolChoice === 'any') {
     return { any: {} };
   }
-  if (typeof toolChoice === 'object' && toolChoice && 'tool' in toolChoice) {
+  if (toolChoice !== null && typeof toolChoice === 'object' && 'tool' in toolChoice) {
     const tc = toolChoice as { tool: { name: string } };
     return { tool: { name: tc.tool.name } };
   }

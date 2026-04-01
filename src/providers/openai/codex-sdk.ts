@@ -1502,11 +1502,6 @@ export class OpenAICodexSDKProvider implements ApiProvider {
       }
     }
 
-    // Guard against undefined instance (shouldn't happen, but defensive coding)
-    if (!activeInstance) {
-      throw new Error('Failed to create Codex instance - SDK module may have failed to load');
-    }
-
     // Get or create thread (pass instance to avoid using stale this.codexInstance)
     const cacheKey = this.generateCacheKey(config, prompt, instanceKey);
     const thread = await this.getOrCreateThread(config, cacheKey, instanceKey, activeInstance);

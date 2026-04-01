@@ -651,8 +651,18 @@ export function buildGraderResultAssertion(
   if (gradeAssertion) {
     return { ...gradeAssertion, value: rubric };
   }
-  if (assertToUse && 'type' in assertToUse && assertToUse.type !== 'assert-set') {
+  if (assertToUse && assertToUse.type !== 'assert-set') {
     return { ...assertToUse, value: rubric };
   }
   return undefined;
+}
+
+export function getGraderAssertionValue(
+  assertToUse: AssertionOrSet | undefined,
+): Assertion['value'] | undefined {
+  if (!assertToUse || assertToUse.type === 'assert-set') {
+    return undefined;
+  }
+
+  return assertToUse.value;
 }

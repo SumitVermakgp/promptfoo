@@ -45,14 +45,11 @@ ${
       result = valueFromScript;
     }
 
-    if (
-      (typeof result === 'boolean' && result) ||
-      (typeof result === 'string' && result.toLowerCase() === 'true')
-    ) {
+    if (result === true || (typeof result === 'string' && result.toLowerCase() === 'true')) {
       pass = true;
       score = 1.0;
     } else if (
-      (typeof result === 'boolean' && !result) ||
+      result === false ||
       (typeof result === 'string' && result.toLowerCase() === 'false')
     ) {
       pass = false;
@@ -117,9 +114,7 @@ ${
   return {
     pass,
     score,
-    reason: pass
-      ? 'Assertion passed'
-      : `Python code returned ${pass ? 'true' : 'false'}\n${assertion.value}`,
+    reason: pass ? 'Assertion passed' : `Python code returned false\n${assertion.value}`,
     assertion,
   };
 };

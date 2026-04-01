@@ -59,8 +59,8 @@ const ShareModal = ({ open, onClose, evalId, onShare }: ShareModalProps) => {
             return;
           }
 
-          // If it's not a public domain or we already have a URL, no need to generate
-          if (!shareUrl && !error) {
+          // If it's not a public domain and no error exists, generate the share URL.
+          if (!error) {
             setIsLoading(true);
             try {
               const url = await onShare(evalId);

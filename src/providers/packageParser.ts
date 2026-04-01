@@ -38,7 +38,7 @@ export async function loadFromPackage(packageInstancePath: string, basePath: str
     throw new Error(`Failed to import module: ${packageName}. Error: ${error}`);
   }
 
-  const entity = getValue(module, entityName ?? 'default');
+  const entity = getValue(module, entityName);
 
   if (!entity) {
     throw new Error(
