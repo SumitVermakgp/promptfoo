@@ -1,5 +1,7 @@
 # eval-javascript-assert-params (JavaScript Assertion Params)
 
+## What this demonstrates
+
 Prototype for comparing two ways to parameterize `type: javascript` assertions.
 
 The recommended pattern uses assertion-local `config` values and reads them from
