@@ -28,7 +28,8 @@ tests:
     assert:
       - type: python
         value: file://rail_score_check.py
-        threshold: 0.5  # Pass if overall score > 5/10
+        config:
+          threshold: 5.0  # Pass if overall score >= 5/10
 ```
 
 Run: `promptfoo eval`

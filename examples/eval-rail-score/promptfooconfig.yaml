@@ -1,3 +1,5 @@
+# yaml-language-server: $schema=https://promptfoo.dev/config-schema.json
+
 # Basic RAIL Score evaluation
 # Scores every LLM response across 8 responsible AI dimensions.
 #
@@ -21,7 +23,8 @@ defaultTest:
   assert:
     - type: python
       value: file://rail_score_check.py
-      threshold: 0.5
+      config:
+        threshold: 5.0
 
 tests:
   - vars:
