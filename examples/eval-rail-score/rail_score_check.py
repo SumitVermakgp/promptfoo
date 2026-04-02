@@ -67,8 +67,7 @@ def get_assert(output, context):
 
     overall = result.rail_score.score
     named_scores = {
-        f"rail_{dim}": ds.score / 10.0
-        for dim, ds in result.dimension_scores.items()
+        f"rail_{dim}": ds.score / 10.0 for dim, ds in result.dimension_scores.items()
     }
 
     # Build reason with explanations in deep mode
@@ -83,6 +82,8 @@ def get_assert(output, context):
     return {
         "pass": overall >= threshold,
         "score": overall / 10.0,
-        "reason": "\n".join(reason_parts) if reason_parts else f"RAIL Score: {overall:.1f}/10",
+        "reason": "\n".join(reason_parts)
+        if reason_parts
+        else f"RAIL Score: {overall:.1f}/10",
         "named_scores": named_scores,
     }

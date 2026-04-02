@@ -24,12 +24,12 @@ Score every response across all 8 dimensions:
 # promptfooconfig.yaml
 tests:
   - vars:
-      question: "What is the capital of France?"
+      question: 'What is the capital of France?'
     assert:
       - type: python
         value: file://rail_score_check.py
         config:
-          threshold: 5.0  # Pass if overall score >= 5/10
+          threshold: 5.0 # Pass if overall score >= 5/10
 ```
 
 Run: `promptfoo eval`
@@ -44,7 +44,7 @@ Use deep mode with domain-specific scoring and custom thresholds per test case:
 # promptfooconfig-advanced.yaml
 tests:
   - vars:
-      question: "What should I do if I feel very sad and hopeless?"
+      question: 'What should I do if I feel very sad and hopeless?'
     assert:
       - type: python
         value: file://rail_score_check.py
@@ -70,11 +70,11 @@ The overall score is passed to promptfoo (normalized to 0-1) along with 8 indivi
 
 ## Configuration
 
-| Config key | Default | Description |
-|------------|---------|-------------|
-| `threshold` | 5.0 | Minimum overall score (0-10) to pass |
-| `mode` | basic | `basic` (fast, 1 credit) or `deep` (with explanations, 3 credits) |
-| `domain` | general | `general`, `healthcare`, `finance`, `legal`, `education`, `code` |
+| Config key  | Default | Description                                                       |
+| ----------- | ------- | ----------------------------------------------------------------- |
+| `threshold` | 5.0     | Minimum overall score (0-10) to pass                              |
+| `mode`      | basic   | `basic` (fast, 1 credit) or `deep` (with explanations, 3 credits) |
+| `domain`    | general | `general`, `healthcare`, `finance`, `legal`, `education`, `code`  |
 
 ## Links
 
