@@ -239,7 +239,7 @@ describe('PythonProvider', () => {
         mockPoolInstance.execute.mockResolvedValue('string result');
 
         await expect(provider.callApi('test prompt')).rejects.toThrow(
-          "Cannot use 'in' operator to search for 'output' in string result",
+          'The Python script `call_api` function must return a dict with an `output` string/object or `error` string, instead got: "string result"',
         );
       });
 

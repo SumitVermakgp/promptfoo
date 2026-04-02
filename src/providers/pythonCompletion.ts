@@ -113,10 +113,10 @@ function hasPythonResultError(result: any): boolean {
 
 function validateCallApiResult(functionName: string, result: any): void {
   // Log result structure for debugging
-  logger.debug(
-    `Python provider result structure: ${result ? typeof result : 'undefined'}, keys: ${result ? Object.keys(result).join(',') : 'none'}`,
-  );
-  if (result && 'output' in result) {
+  const resultType = result === null ? 'null' : typeof result;
+  const resultKeys = result && typeof result === 'object' ? Object.keys(result).join(',') : 'none';
+  logger.debug(`Python provider result structure: ${resultType}, keys: ${resultKeys}`);
+  if (result && typeof result === 'object' && 'output' in result) {
     logger.debug(
       `Python provider output type: ${typeof result.output}, isArray: ${Array.isArray(result.output)}`,
     );
