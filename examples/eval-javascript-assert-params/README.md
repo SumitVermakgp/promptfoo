@@ -9,6 +9,10 @@ The recommended pattern uses assertion-local `config` values and reads them from
 focused on prompt rendering data and allows the same assertion script to run
 with different parameters in the same test case.
 
+## Environment Variables
+
+No environment variables are required to run this example.
+
 ```bash
 npx promptfoo@latest init --example eval-javascript-assert-params
 ```
