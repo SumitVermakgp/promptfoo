@@ -356,23 +356,28 @@ describe('readStandaloneTestsFile', () => {
   });
 
   it('should prefer SharePoint URL handling over local JSON parsing when URL ends with .json', async () => {
-    const sharepointUrl = 'https://example.sharepoint.com/sites/team/tests.json';
+    const sharepointUrls = [
+      'https://example.sharepoint.com/sites/team/tests.json',
+      'https://example.sharepoint.com/:x:/r/sites/team/tests.json',
+    ];
     vi.mocked(fetchCsvFromSharepoint).mockResolvedValue([
       { var1: 'value1', __expected: 'expected1' },
     ]);
 
-    const result = await readStandaloneTestsFile(sharepointUrl);
+    for (const sharepointUrl of sharepointUrls) {
+      const result = await readStandaloneTestsFile(sharepointUrl);
 
-    expect(fetchCsvFromSharepoint).toHaveBeenCalledWith(sharepointUrl);
-    expect(fs.readFileSync).not.toHaveBeenCalled();
-    expect(result).toEqual([
-      {
-        assert: [{ metric: undefined, type: 'equals', value: 'expected1' }],
-        description: 'Row #1',
-        options: {},
-        vars: { var1: 'value1' },
-      },
-    ]);
+      expect(fetchCsvFromSharepoint).toHaveBeenCalledWith(sharepointUrl);
+      expect(fs.readFileSync).not.toHaveBeenCalled();
+      expect(result).toEqual([
+        {
+          assert: [{ metric: undefined, type: 'equals', value: 'expected1' }],
+          description: 'Row #1',
+          options: {},
+          vars: { var1: 'value1' },
+        },
+      ]);
+    }
   });
 
   it('should read JS file and return test cases', async () => {
