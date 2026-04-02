@@ -251,6 +251,94 @@ describe('Transformation integration', () => {
     expect(testTransform?.input).toBe('{"provider":"ORIGINAL"}');
   });
 
+  it('should support inline function as provider transform', async () => {
+    const providerTransformFn = (output: string) => String(output).trim().toUpperCase();
+    mockTransform.mockImplementation(async (expressionOrFn, input) => {
+      if (typeof expressionOrFn === 'function') {
+        return expressionOrFn(input);
+      }
+      return input;
+    });
+
+    const testSuite: TestSuite = {
+      prompts: [{ raw: 'Test prompt', label: 'Test' }],
+      providers: [
+        {
+          id: () => 'mock-provider',
+          callApi: async () => ({
+            output: '  spaced output  ',
+            tokenUsage: { total: 10, prompt: 5, completion: 5, numRequests: 1 },
+          }),
+          transform: providerTransformFn,
+        } as ApiProvider,
+      ],
+      tests: [
+        {
+          assert: [
+            {
+              type: 'equals',
+              value: 'SPACED OUTPUT',
+            },
+          ],
+        },
+      ],
+    };
+
+    const evalRecord = new Eval({});
+    const results = await evaluate(testSuite, evalRecord, { maxConcurrency: 1 });
+    expect(results.results[0].response?.output).toBe('SPACED OUTPUT');
+    expect(mockTransform).toHaveBeenCalledWith(
+      providerTransformFn,
+      expect.anything(),
+      expect.anything(),
+    );
+  });
+
+  it('should support inline function as test options.transform', async () => {
+    const testTransformFn = (output: string) => String(output).toUpperCase();
+    mockTransform.mockImplementation(async (expressionOrFn, input) => {
+      if (typeof expressionOrFn === 'function') {
+        return expressionOrFn(input);
+      }
+      return input;
+    });
+
+    const testSuite: TestSuite = {
+      prompts: [{ raw: 'Test prompt', label: 'Test' }],
+      providers: [
+        {
+          id: () => 'mock-provider',
+          callApi: async () => ({
+            output: 'hello world',
+            tokenUsage: { total: 10, prompt: 5, completion: 5, numRequests: 1 },
+          }),
+        } as ApiProvider,
+      ],
+      tests: [
+        {
+          options: {
+            transform: testTransformFn,
+          },
+          assert: [
+            {
+              type: 'equals',
+              value: 'HELLO WORLD',
+            },
+          ],
+        },
+      ],
+    };
+
+    const evalRecord = new Eval({});
+    const results = await evaluate(testSuite, evalRecord, { maxConcurrency: 1 });
+    expect(results.results[0].response?.output).toBe('HELLO WORLD');
+    expect(mockTransform).toHaveBeenCalledWith(
+      testTransformFn,
+      expect.anything(),
+      expect.anything(),
+    );
+  });
+
   it('should work correctly with only provider transform', async () => {
     mockTransform.mockImplementation(async (expression, input) => {
       if (expression === 'output.trim().toUpperCase()') {

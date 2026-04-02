@@ -173,6 +173,46 @@ describe('resolveContext', () => {
         "Failed to transform context using expression 'output.invalid': Transform failed",
       );
     });
+
+    it('should support inline function as contextTransform', async () => {
+      const contextFn = (output: any) => output.context;
+      mockTransform.mockResolvedValue('extracted context' as any);
+
+      const assertion: Assertion = {
+        type: 'context-faithfulness',
+        contextTransform: contextFn,
+      };
+      const test: AtomicTestCase = { vars: {}, options: {} };
+
+      const result = await resolveContext(
+        assertion,
+        test,
+        { context: 'extracted context', data: 'other' },
+        'prompt',
+      );
+
+      expect(result).toBe('extracted context');
+      expect(mockTransform).toHaveBeenCalledWith(
+        contextFn,
+        { context: 'extracted context', data: 'other' },
+        expect.any(Object),
+      );
+    });
+
+    it('should show [inline function] in error messages for function contextTransform', async () => {
+      const contextFn = () => 42;
+      mockTransform.mockRejectedValue(new Error('Transform failed'));
+
+      const assertion: Assertion = {
+        type: 'context-faithfulness',
+        contextTransform: contextFn,
+      };
+      const test: AtomicTestCase = { vars: {}, options: {} };
+
+      await expect(resolveContext(assertion, test, 'output', 'prompt')).rejects.toThrow(
+        "Failed to transform context using expression '[inline function]': Transform failed",
+      );
+    });
   });
 
   describe('error cases', () => {

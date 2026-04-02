@@ -366,5 +366,80 @@ describe('util', () => {
         expect(transformedOutput).toBe('HELLO');
       });
     });
+
+    describe('inline function transforms (Node.js package)', () => {
+      it('transforms output using a directly passed function', async () => {
+        const output = 'hello world';
+        const context = { vars: { key: 'value' }, prompt: { id: '123' } };
+        const fn = (output: string) => output.toUpperCase();
+
+        const result = await transform(fn, output, context);
+        expect(result).toBe('HELLO WORLD');
+      });
+
+      it('transforms output using an async function', async () => {
+        const output = 'hello';
+        const context = { vars: {}, prompt: {} };
+        const fn = async (output: string) => {
+          return output + ' async';
+        };
+
+        const result = await transform(fn, output, context);
+        expect(result).toBe('hello async');
+      });
+
+      it('passes context to the function', async () => {
+        const output = 'test';
+        const context = { vars: { name: 'Alice' }, prompt: { label: 'greeting' } };
+        const fn = (output: string, ctx: any) => `${output} for ${ctx.vars.name}`;
+
+        const result = await transform(fn, output, context);
+        expect(result).toBe('test for Alice');
+      });
+
+      it('transforms vars using a directly passed function', async () => {
+        const vars = { key: 'value', other: 'data' };
+        const context = { vars: {}, prompt: {} };
+        const fn = (vars: any) => ({ ...vars, key: vars.key.toUpperCase() });
+
+        const result = await transform(fn, vars, context, true, TransformInputType.VARS);
+        expect(result).toEqual({ key: 'VALUE', other: 'data' });
+      });
+
+      it('throws when inline function returns undefined and validateReturn is true', async () => {
+        const output = 'test';
+        const context = { vars: {}, prompt: {} };
+        const fn = () => undefined;
+
+        await expect(transform(fn, output, context, true)).rejects.toThrow(
+          'Transform function did not return a value',
+        );
+      });
+
+      it('does not throw when inline function returns undefined and validateReturn is false', async () => {
+        const output = 'test';
+        const context = { vars: {}, prompt: {} };
+        const fn = () => undefined;
+
+        const result = await transform(fn, output, context, false);
+        expect(result).toBeUndefined();
+      });
+
+      it('handles function that accesses metadata from context', async () => {
+        const output = 'raw output';
+        const context = {
+          vars: {},
+          prompt: {},
+          metadata: { toolCalls: [{ name: 'search' }, { name: 'calculate' }] },
+        };
+        const fn = (_output: string, ctx: any) => {
+          const tools = ctx.metadata?.toolCalls ?? [];
+          return tools.map((t: any) => t.name).join(', ');
+        };
+
+        const result = await transform(fn, output, context);
+        expect(result).toBe('search, calculate');
+      });
+    });
   });
 });
