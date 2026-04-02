@@ -60,7 +60,11 @@ function hasRubyResultProperty(
   result: any,
   propertyName: 'output' | 'error' | 'embedding' | 'classification',
 ): boolean {
-  return Boolean(result) && typeof result === 'object' && Object.hasOwn(result, propertyName);
+  return (
+    Boolean(result) &&
+    typeof result === 'object' &&
+    Object.prototype.hasOwnProperty.call(result, propertyName)
+  );
 }
 
 function applyCachedRubyCallApiMetadata(apiType: RubyApiType, parsedResult: any) {

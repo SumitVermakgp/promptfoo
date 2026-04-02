@@ -66,7 +66,11 @@ function hasPythonResultProperty(
   result: any,
   propertyName: 'output' | 'error' | 'embedding' | 'classification',
 ): boolean {
-  return Boolean(result) && typeof result === 'object' && Object.hasOwn(result, propertyName);
+  return (
+    Boolean(result) &&
+    typeof result === 'object' &&
+    Object.prototype.hasOwnProperty.call(result, propertyName)
+  );
 }
 
 function applyCachedCallApiMetadata(apiType: PythonApiType, parsedResult: any) {
