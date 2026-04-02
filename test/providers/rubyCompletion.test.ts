@@ -226,6 +226,16 @@ describe('RubyProvider', () => {
         );
       });
 
+      it('should reject inherited output properties from a polluted prototype', async () => {
+        const provider = new RubyProvider('script.rb');
+        const inheritedResult = Object.create({ output: 'polluted output' });
+        mockRunRuby.mockResolvedValue(inheritedResult);
+
+        await expect(provider.callApi('test prompt')).rejects.toThrow(
+          'The Ruby script `call_api` function must return a hash with an `output` string/object or `error` string, instead got: {}',
+        );
+      });
+
       it('should not throw an error when Ruby script returns a valid output', async () => {
         const provider = new RubyProvider('script.rb');
         mockRunRuby.mockResolvedValue({ output: 'valid output' });
@@ -259,6 +269,16 @@ describe('RubyProvider', () => {
         'The Ruby script `call_embedding_api` function must return a hash with an `embedding` array or `error` string, instead got {"invalidKey":"invalid value"}',
       );
     });
+
+    it('should reject inherited embedding properties from a polluted prototype', async () => {
+      const provider = new RubyProvider('script.rb');
+      const inheritedResult = Object.create({ embedding: [0.1, 0.2, 0.3] });
+      mockRunRuby.mockResolvedValue(inheritedResult);
+
+      await expect(provider.callEmbeddingApi('test prompt')).rejects.toThrow(
+        'The Ruby script `call_embedding_api` function must return a hash with an `embedding` array or `error` string, instead got {}',
+      );
+    });
   });
 
   describe('callClassificationApi', () => {
@@ -283,6 +303,16 @@ describe('RubyProvider', () => {
 
       await expect(provider.callClassificationApi('test prompt')).rejects.toThrow(
         'The Ruby script `call_classification_api` function must return a hash with a `classification` object or `error` string, instead of {"invalidKey":"invalid value"}',
+      );
+    });
+
+    it('should reject inherited classification properties from a polluted prototype', async () => {
+      const provider = new RubyProvider('script.rb');
+      const inheritedResult = Object.create({ classification: { label: 'polluted' } });
+      mockRunRuby.mockResolvedValue(inheritedResult);
+
+      await expect(provider.callClassificationApi('test prompt')).rejects.toThrow(
+        'The Ruby script `call_classification_api` function must return a hash with a `classification` object or `error` string, instead of {}',
       );
     });
   });

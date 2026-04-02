@@ -56,6 +56,13 @@ function buildRubyScriptArgs(
     : [prompt, optionsWithProcessedConfig];
 }
 
+function hasRubyResultProperty(
+  result: any,
+  propertyName: 'output' | 'error' | 'embedding' | 'classification',
+): boolean {
+  return Boolean(result) && typeof result === 'object' && Object.hasOwn(result, propertyName);
+}
+
 function applyCachedRubyCallApiMetadata(apiType: RubyApiType, parsedResult: any) {
   if (apiType !== 'call_api' || typeof parsedResult !== 'object' || parsedResult === null) {
     return parsedResult;
@@ -93,7 +100,10 @@ function applyFreshRubyCallApiMetadata(apiType: RubyApiType, result: any) {
 
 function hasRubyResultError(result: any): boolean {
   return (
-    'error' in result && result.error !== null && result.error !== undefined && result.error !== ''
+    hasRubyResultProperty(result, 'error') &&
+    result.error !== null &&
+    result.error !== undefined &&
+    result.error !== ''
   );
 }
 
@@ -102,13 +112,13 @@ function validateRubyCallApiResult(functionName: string, result: any): void {
   logger.debug(
     `Ruby provider result structure: ${result ? typeof result : 'undefined'}, keys: ${result && typeof result === 'object' ? Object.keys(result).join(',') : 'none'}`,
   );
-  if (result && typeof result === 'object' && 'output' in result) {
+  if (hasRubyResultProperty(result, 'output')) {
     logger.debug(
       `Ruby provider output type: ${typeof result.output}, isArray: ${Array.isArray(result.output)}`,
     );
   }
 
-  if (!result || typeof result !== 'object' || (!('output' in result) && !('error' in result))) {
+  if (!hasRubyResultProperty(result, 'output') && !hasRubyResultProperty(result, 'error')) {
     throw new Error(
       `The Ruby script \`${functionName}\` function must return a hash with an \`output\` string/object or \`error\` string, instead got: ${JSON.stringify(
         result,
@@ -118,7 +128,7 @@ function validateRubyCallApiResult(functionName: string, result: any): void {
 }
 
 function validateRubyEmbeddingResult(functionName: string, result: any): void {
-  if (!result || typeof result !== 'object' || (!('embedding' in result) && !('error' in result))) {
+  if (!hasRubyResultProperty(result, 'embedding') && !hasRubyResultProperty(result, 'error')) {
     throw new Error(
       `The Ruby script \`${functionName}\` function must return a hash with an \`embedding\` array or \`error\` string, instead got ${JSON.stringify(
         result,
@@ -128,11 +138,7 @@ function validateRubyEmbeddingResult(functionName: string, result: any): void {
 }
 
 function validateRubyClassificationResult(functionName: string, result: any): void {
-  if (
-    !result ||
-    typeof result !== 'object' ||
-    (!('classification' in result) && !('error' in result))
-  ) {
+  if (!hasRubyResultProperty(result, 'classification') && !hasRubyResultProperty(result, 'error')) {
     throw new Error(
       `The Ruby script \`${functionName}\` function must return a hash with a \`classification\` object or \`error\` string, instead of ${JSON.stringify(
         result,

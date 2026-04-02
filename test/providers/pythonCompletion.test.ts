@@ -243,6 +243,16 @@ describe('PythonProvider', () => {
         );
       });
 
+      it('should reject inherited output properties from a polluted prototype', async () => {
+        const provider = new PythonProvider('script.py');
+        const inheritedResult = Object.create({ output: 'polluted output' });
+        mockPoolInstance.execute.mockResolvedValue(inheritedResult);
+
+        await expect(provider.callApi('test prompt')).rejects.toThrow(
+          'The Python script `call_api` function must return a dict with an `output` string/object or `error` string, instead got: {}',
+        );
+      });
+
       it('should not throw an error when Python script returns a valid output', async () => {
         const provider = new PythonProvider('script.py');
         mockPoolInstance.execute.mockResolvedValue({ output: 'valid output' });
@@ -274,6 +284,16 @@ describe('PythonProvider', () => {
         'The Python script `call_embedding_api` function must return a dict with an `embedding` array or `error` string, instead got {"invalidKey":"invalid value"}',
       );
     });
+
+    it('should reject inherited embedding properties from a polluted prototype', async () => {
+      const provider = new PythonProvider('script.py');
+      const inheritedResult = Object.create({ embedding: [0.1, 0.2, 0.3] });
+      mockPoolInstance.execute.mockResolvedValue(inheritedResult);
+
+      await expect(provider.callEmbeddingApi('test prompt')).rejects.toThrow(
+        'The Python script `call_embedding_api` function must return a dict with an `embedding` array or `error` string, instead got {}',
+      );
+    });
   });
 
   describe('callClassificationApi', () => {
@@ -296,6 +316,16 @@ describe('PythonProvider', () => {
 
       await expect(provider.callClassificationApi('test prompt')).rejects.toThrow(
         'The Python script `call_classification_api` function must return a dict with a `classification` object or `error` string, instead of {"invalidKey":"invalid value"}',
+      );
+    });
+
+    it('should reject inherited classification properties from a polluted prototype', async () => {
+      const provider = new PythonProvider('script.py');
+      const inheritedResult = Object.create({ classification: { label: 'polluted' } });
+      mockPoolInstance.execute.mockResolvedValue(inheritedResult);
+
+      await expect(provider.callClassificationApi('test prompt')).rejects.toThrow(
+        'The Python script `call_classification_api` function must return a dict with a `classification` object or `error` string, instead of {}',
       );
     });
   });

@@ -62,6 +62,13 @@ function buildPythonScriptArgs(
     : [prompt, optionsWithProcessedConfig];
 }
 
+function hasPythonResultProperty(
+  result: any,
+  propertyName: 'output' | 'error' | 'embedding' | 'classification',
+): boolean {
+  return Boolean(result) && typeof result === 'object' && Object.hasOwn(result, propertyName);
+}
+
 function applyCachedCallApiMetadata(apiType: PythonApiType, parsedResult: any) {
   if (apiType !== 'call_api' || typeof parsedResult !== 'object' || parsedResult === null) {
     return parsedResult;
@@ -107,7 +114,10 @@ function applyFreshCallApiMetadata(apiType: PythonApiType, result: any) {
 
 function hasPythonResultError(result: any): boolean {
   return (
-    'error' in result && result.error !== null && result.error !== undefined && result.error !== ''
+    hasPythonResultProperty(result, 'error') &&
+    result.error !== null &&
+    result.error !== undefined &&
+    result.error !== ''
   );
 }
 
@@ -116,13 +126,13 @@ function validateCallApiResult(functionName: string, result: any): void {
   const resultType = result === null ? 'null' : typeof result;
   const resultKeys = result && typeof result === 'object' ? Object.keys(result).join(',') : 'none';
   logger.debug(`Python provider result structure: ${resultType}, keys: ${resultKeys}`);
-  if (result && typeof result === 'object' && 'output' in result) {
+  if (hasPythonResultProperty(result, 'output')) {
     logger.debug(
       `Python provider output type: ${typeof result.output}, isArray: ${Array.isArray(result.output)}`,
     );
   }
 
-  if (!result || typeof result !== 'object' || (!('output' in result) && !('error' in result))) {
+  if (!hasPythonResultProperty(result, 'output') && !hasPythonResultProperty(result, 'error')) {
     throw new Error(
       `The Python script \`${functionName}\` function must return a dict with an \`output\` string/object or \`error\` string, instead got: ${JSON.stringify(
         result,
@@ -132,7 +142,7 @@ function validateCallApiResult(functionName: string, result: any): void {
 }
 
 function validateEmbeddingResult(functionName: string, result: any): void {
-  if (!result || typeof result !== 'object' || (!('embedding' in result) && !('error' in result))) {
+  if (!hasPythonResultProperty(result, 'embedding') && !hasPythonResultProperty(result, 'error')) {
     throw new Error(
       `The Python script \`${functionName}\` function must return a dict with an \`embedding\` array or \`error\` string, instead got ${JSON.stringify(
         result,
@@ -143,9 +153,8 @@ function validateEmbeddingResult(functionName: string, result: any): void {
 
 function validateClassificationResult(functionName: string, result: any): void {
   if (
-    !result ||
-    typeof result !== 'object' ||
-    (!('classification' in result) && !('error' in result))
+    !hasPythonResultProperty(result, 'classification') &&
+    !hasPythonResultProperty(result, 'error')
   ) {
     throw new Error(
       `The Python script \`${functionName}\` function must return a dict with a \`classification\` object or \`error\` string, instead of ${JSON.stringify(
