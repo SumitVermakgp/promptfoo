@@ -198,37 +198,32 @@ export async function transform(
   validateReturn: boolean = true,
   inputType: TransformInputType = TransformInputType.OUTPUT,
 ): Promise<any> {
-  let postprocessFn: Function | null;
+  const isDirectFunction = typeof codeOrFilepathOrFn === 'function';
+  const transformFn = isDirectFunction
+    ? codeOrFilepathOrFn
+    : await getTransformFunction(codeOrFilepathOrFn, inputType);
 
-  if (typeof codeOrFilepathOrFn === 'function') {
-    postprocessFn = codeOrFilepathOrFn;
-  } else {
-    postprocessFn = await getTransformFunction(codeOrFilepathOrFn, inputType);
-  }
-
-  const label = getTransformLabel(codeOrFilepathOrFn);
-
-  if (!postprocessFn) {
-    throw new Error(`Invalid transform function for ${label}`);
+  if (!transformFn) {
+    throw new Error(`Invalid transform function for ${getTransformLabel(codeOrFilepathOrFn)}`);
   }
 
   let ret: unknown;
   try {
-    if (typeof codeOrFilepathOrFn === 'function') {
-      // Direct function: call with (input, context) only
-      ret = await Promise.resolve(postprocessFn(transformInput, context));
-    } else {
-      // String-based (inline code or file): pass process shim for ESM compatibility
-      ret = await Promise.resolve(postprocessFn(transformInput, context, getProcessShim()));
-    }
+    ret = isDirectFunction
+      ? await Promise.resolve(transformFn(transformInput, context))
+      : await Promise.resolve(transformFn(transformInput, context, getProcessShim()));
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    logger.error(`Error in transform function (${label}): ${message}`);
+    logger.error(
+      `Error in transform function (${getTransformLabel(codeOrFilepathOrFn)}): ${message}`,
+    );
     throw error;
   }
 
   if (validateReturn && (ret === null || ret === undefined)) {
-    throw new Error(`Transform function did not return a value\n\n${label}`);
+    throw new Error(
+      `Transform function did not return a value\n\n${getTransformLabel(codeOrFilepathOrFn)}`,
+    );
   }
 
   return ret;
