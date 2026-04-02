@@ -158,20 +158,12 @@ function validateRubyScriptResult(apiType: RubyApiType, functionName: string, re
 }
 
 async function runRubyApiFunction(
-  apiType: RubyApiType,
   absPath: string,
   functionName: string,
   args: (string | number | object | undefined)[],
   rubyExecutable: string | undefined,
 ) {
-  switch (apiType) {
-    case 'call_api':
-    case 'call_embedding_api':
-    case 'call_classification_api':
-      return runRuby(absPath, functionName, args, { rubyExecutable });
-    default:
-      throw new Error(`Unsupported apiType: ${apiType}`);
-  }
+  return runRuby(absPath, functionName, args, { rubyExecutable });
 }
 
 /**
@@ -317,7 +309,6 @@ export class RubyProvider implements ApiProvider {
 
       const functionName = this.functionName || apiType;
       const result = await runRubyApiFunction(
-        apiType,
         absPath,
         functionName,
         args,
