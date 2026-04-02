@@ -605,8 +605,7 @@ export function DataTable<TData, TValue = unknown>({
                       {row.getVisibleCells().map((cell) => {
                         const cellAlign = cell.column.columnDef.meta?.align ?? 'left';
                         const cellSize = `${cell.column.getSize()}px`;
-                        const isUtilityColumn =
-                          cell.column.id === 'select' || cell.column.id === 'expand';
+                        const isUtilityColumn = UTILITY_COLUMN_IDS.has(cell.column.id);
 
                         return (
                           <td
