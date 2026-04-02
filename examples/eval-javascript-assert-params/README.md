@@ -1,0 +1,24 @@
+# eval-javascript-assert-params (JavaScript Assertion Params)
+
+Prototype for comparing two ways to parameterize `type: javascript` assertions.
+
+The recommended pattern uses assertion-local `config` values and reads them from
+`context.config` inside the JavaScript assertion. That keeps prompt/test vars
+focused on prompt rendering data and allows the same assertion script to run
+with different parameters in the same test case.
+
+```bash
+npx promptfoo@latest init --example eval-javascript-assert-params
+```
+
+Run the config-based version:
+
+```bash
+npm run local -- eval -c examples/eval-javascript-assert-params/promptfooconfig.yaml --no-cache
+```
+
+Run the test-vars workaround version for comparison:
+
+```bash
+npm run local -- eval -c examples/eval-javascript-assert-params/promptfooconfig.test-vars.yaml --no-cache
+```
