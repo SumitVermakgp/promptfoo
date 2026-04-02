@@ -1,5 +1,6 @@
 import { type ZodType, z } from 'zod';
 import { UnifiedConfigSchema } from '../src/types';
+import { StringOrFunctionSchema } from '../src/validators/shared';
 
 // NOTE: This script accesses Zod's internal _def property to extract the input schema
 // from pipe/transform wrappers. This is necessary because UnifiedConfigSchema uses
@@ -56,13 +57,23 @@ const schemaContent = z.toJSONSchema(innerSchema, {
   override: (ctx: any) => {
     const zodSchema = ctx.zodSchema as ZodType;
     const def = zodSchema._def as { type?: string; in?: ZodType; innerType?: ZodType };
+    const baseSchema = getBaseSchema(zodSchema);
+
+    // Config files can only represent string transforms. Preserve runtime support for function
+    // transforms in the Zod schema, but keep generated JSON Schema string-only for editor/Ajv use.
+    if (baseSchema === StringOrFunctionSchema) {
+      for (const key of Object.keys(ctx.jsonSchema)) {
+        delete ctx.jsonSchema[key];
+      }
+      Object.assign(ctx.jsonSchema, { type: 'string' });
+      return;
+    }
 
     // Handle optional/nullable wrapping a pipe/transform
     if ((def?.type === 'optional' || def?.type === 'nullable') && def?.innerType) {
       const innerDef = def.innerType._def as { type?: string };
       if (innerDef?.type === 'pipe' || innerDef?.type === 'transform') {
         if (Object.keys(ctx.jsonSchema).length === 0) {
-          const baseSchema = getBaseSchema(zodSchema);
           const result = z.toJSONSchema(baseSchema, nestedOptions);
           const { $schema: _, ...rest } = result as Record<string, unknown>;
           Object.assign(ctx.jsonSchema, rest);
@@ -73,7 +84,6 @@ const schemaContent = z.toJSONSchema(innerSchema, {
     // Handle pipe/transform directly
     if ((def?.type === 'pipe' || def?.type === 'transform') && def?.in) {
       if (Object.keys(ctx.jsonSchema).length === 0) {
-        const baseSchema = getBaseSchema(zodSchema);
         const result = z.toJSONSchema(baseSchema, nestedOptions);
         const { $schema: _, ...rest } = result as Record<string, unknown>;
         Object.assign(ctx.jsonSchema, rest);

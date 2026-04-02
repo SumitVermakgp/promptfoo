@@ -139,11 +139,7 @@
           }
         },
         "transform": {
-          "allOf": [
-            {
-              "$ref": "#/definitions/__schema6"
-            }
-          ]
+          "type": "string"
         },
         "delay": {
           "type": "number"
@@ -166,12 +162,7 @@
       "additionalProperties": false
     },
     "__schema6": {
-      "anyOf": [
-        {
-          "type": "string"
-        },
-        {}
-      ]
+      "type": "string"
     },
     "__schema7": {
       "type": "object",
@@ -708,11 +699,7 @@
             "callClassificationApi": {},
             "label": {},
             "transform": {
-              "allOf": [
-                {
-                  "$ref": "#/definitions/__schema6"
-                }
-              ]
+              "type": "string"
             },
             "delay": {
               "type": "number"
@@ -976,18 +963,10 @@
           "type": "string"
         },
         "transform": {
-          "allOf": [
-            {
-              "$ref": "#/definitions/__schema6"
-            }
-          ]
+          "type": "string"
         },
         "contextTransform": {
-          "allOf": [
-            {
-              "$ref": "#/definitions/__schema6"
-            }
-          ]
+          "type": "string"
         }
       },
       "required": ["type"],
@@ -1012,25 +991,13 @@
           "type": "string"
         },
         "postprocess": {
-          "allOf": [
-            {
-              "$ref": "#/definitions/__schema6"
-            }
-          ]
+          "type": "string"
         },
         "transform": {
-          "allOf": [
-            {
-              "$ref": "#/definitions/__schema6"
-            }
-          ]
+          "type": "string"
         },
         "transformVars": {
-          "allOf": [
-            {
-              "$ref": "#/definitions/__schema6"
-            }
-          ]
+          "type": "string"
         },
         "storeOutputAs": {
           "type": "string"

@@ -251,4 +251,59 @@ describe('config-schema.json', () => {
       expect(properties).toHaveProperty('defaultTest');
     });
   });
+
+  describe('transform schema', () => {
+    it('should accept string transforms in JSON/YAML config files', () => {
+      const validate = ajv.compile(schema);
+
+      const config = {
+        prompts: ['hello'],
+        providers: ['echo'],
+        tests: [
+          {
+            options: {
+              transform: 'output.trim()',
+              transformVars: '{ ...vars, name: vars.name.toUpperCase() }',
+            },
+            assert: [
+              {
+                type: 'contains',
+                value: 'HELLO',
+                transform: 'output.toUpperCase()',
+                contextTransform: 'output.context',
+              },
+            ],
+          },
+        ],
+      };
+
+      expect(validate(config)).toBe(true);
+    });
+
+    it('should reject non-string transforms in JSON/YAML config files', () => {
+      const validate = ajv.compile(schema);
+
+      const config = {
+        prompts: ['hello'],
+        providers: ['echo'],
+        tests: [
+          {
+            options: {
+              transform: { unexpected: 'object' },
+            },
+          },
+        ],
+      };
+
+      expect(validate(config)).toBe(false);
+      expect(validate.errors).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            instancePath: '/tests/0/options/transform',
+            keyword: 'type',
+          }),
+        ]),
+      );
+    });
+  });
 });
