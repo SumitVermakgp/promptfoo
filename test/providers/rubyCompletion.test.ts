@@ -160,6 +160,37 @@ describe('RubyProvider', () => {
       expect(result).toEqual({ output: 'test output', cached: false });
     });
 
+    it('should not mutate the caller context when sanitizing', async () => {
+      const provider = new RubyProvider('script.rb');
+      mockRunRuby.mockResolvedValue({ output: 'test output' });
+
+      const originalProvider = {
+        id: () => 'test-target',
+        callApi: vi.fn(),
+      };
+      const context: any = {
+        someContext: true,
+        originalProvider,
+        logger: { debug: vi.fn() },
+        getCache: vi.fn(),
+        filters: { uppercase: () => '' },
+      };
+
+      await provider.callApi('test prompt', context);
+
+      expect(context.originalProvider).toBe(originalProvider);
+      expect(context.logger).toBeDefined();
+      expect(context.getCache).toBeDefined();
+      expect(context.filters).toBeDefined();
+
+      expect(mockRunRuby).toHaveBeenCalledWith(
+        expect.any(String),
+        'call_api',
+        ['test prompt', { config: {} }, { someContext: true }],
+        { rubyExecutable: undefined },
+      );
+    });
+
     describe('error handling', () => {
       it('should throw a specific error when Ruby script returns invalid result', async () => {
         const provider = new RubyProvider('script.rb');
