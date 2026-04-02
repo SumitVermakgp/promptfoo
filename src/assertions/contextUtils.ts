@@ -60,17 +60,26 @@ export async function resolveContext(
           providerResponse.metadata && { metadata: providerResponse.metadata }),
       });
 
+      const transformLabel =
+        typeof assertion.contextTransform === 'function'
+          ? '[inline function]'
+          : assertion.contextTransform;
+
       invariant(
         typeof transformed === 'string' ||
           (Array.isArray(transformed) && transformed.every((item) => typeof item === 'string')),
         `contextTransform must return a string or array of strings. Got ${typeof transformed}. ` +
-          `Check your transform expression: ${assertion.contextTransform}`,
+          `Check your transform expression: ${transformLabel}`,
       );
 
       contextValue = transformed;
     } catch (error) {
+      const transformLabel =
+        typeof assertion.contextTransform === 'function'
+          ? '[inline function]'
+          : assertion.contextTransform;
       throw new Error(
-        `Failed to transform context using expression '${assertion.contextTransform}': ${
+        `Failed to transform context using expression '${transformLabel}': ${
           error instanceof Error ? error.message : String(error)
         }`,
       );

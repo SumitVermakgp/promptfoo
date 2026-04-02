@@ -60,7 +60,7 @@ export interface ProviderOptions {
   label?: ProviderLabel;
   config?: any;
   prompts?: string[];
-  transform?: string;
+  transform?: string | Function;
   delay?: number;
   env?: EnvOverrides;
   inputs?: Inputs;
@@ -117,7 +117,7 @@ export interface ApiProvider {
   getSessionId?: () => string;
   inputs?: Inputs;
   label?: ProviderLabel;
-  transform?: string;
+  transform?: string | Function;
   toJSON?: () => any;
   /**
    * Provider-wide cleanup hook for releasing long-lived resources such as worker

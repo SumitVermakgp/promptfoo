@@ -444,7 +444,7 @@ export async function createIterationContext({
   loggerTag = '[Redteam]',
 }: {
   originalVars: Record<string, VarValue>;
-  transformVarsConfig?: string;
+  transformVarsConfig?: string | Function;
   context?: CallApiContextParams;
   iterationNumber: number;
   loggerTag?: string;

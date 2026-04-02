@@ -151,13 +151,19 @@ export const GradingConfigSchema = z.object({
 
 export type GradingConfig = z.infer<typeof GradingConfigSchema>;
 
+// Schema that accepts a string or a function (for Node.js package usage)
+const StringOrFunctionSchema = z.union([
+  z.string(),
+  z.custom<Function>((val) => typeof val === 'function'),
+]);
+
 export const OutputConfigSchema = z.object({
   /**
    * @deprecated in > 0.38.0. Use `transform` instead.
    */
-  postprocess: z.string().optional(),
-  transform: z.string().optional(),
-  transformVars: z.string().optional(),
+  postprocess: StringOrFunctionSchema.optional(),
+  transform: StringOrFunctionSchema.optional(),
+  transformVars: StringOrFunctionSchema.optional(),
 
   // The name of the variable to store the output of this test case
   storeOutputAs: z.string().optional(),
@@ -658,10 +664,10 @@ export const AssertionSchema = z.object({
   metric: z.string().optional(),
 
   // Process the output before running the assertion
-  transform: z.string().optional(),
+  transform: StringOrFunctionSchema.optional(),
 
   // Extract context from the output using a transform
-  contextTransform: z.string().optional(),
+  contextTransform: StringOrFunctionSchema.optional(),
 });
 
 export type Assertion = z.infer<typeof AssertionSchema>;

@@ -11,12 +11,17 @@ import type {
   ProviderLabel,
 } from '../types/providers';
 
+const StringOrFunctionSchema = z.union([
+  z.string(),
+  z.custom<Function>((val) => typeof val === 'function'),
+]);
+
 export const ProviderOptionsSchema = z.object({
   id: z.custom<ProviderId>().optional(),
   label: z.custom<ProviderLabel>().optional(),
   config: z.any().optional(),
   prompts: z.array(z.string()).optional(),
-  transform: z.string().optional(),
+  transform: StringOrFunctionSchema.optional(),
   delay: z.number().optional(),
   env: ProviderEnvOverridesSchema.optional(),
   inputs: InputsSchema.optional(),
@@ -38,7 +43,7 @@ export const ApiProviderSchema = z.object({
     )
     .optional(),
   label: z.custom<ProviderLabel>().optional(),
-  transform: z.string().optional(),
+  transform: StringOrFunctionSchema.optional(),
   delay: z.number().optional(),
   config: z.any().optional(),
   inputs: InputsSchema.optional(),

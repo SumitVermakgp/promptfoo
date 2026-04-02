@@ -37,6 +37,8 @@ export type {
   BeforeEachExtensionHookContext,
   ExtensionHookContextMap,
 } from './evaluatorHelpers';
+// Transform types for users passing inline transform functions via the Node.js package
+export type { TransformFunction } from './util/transform';
 
 async function evaluate(testSuite: EvaluateTestSuite, options: EvaluateOptions = {}) {
   if (testSuite.writeLatestResults) {

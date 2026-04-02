@@ -10,6 +10,15 @@ import type { Vars } from '../types/index';
 
 export type TransformContext = object;
 
+/**
+ * A function that transforms output or vars before assertion evaluation.
+ * Supported when using promptfoo as a Node.js package.
+ */
+export type TransformFunction = (
+  output: string | object,
+  context: TransformContext,
+) => string | object | Promise<string | object>;
+
 export const TransformInputType = {
   OUTPUT: 'output',
   VARS: 'vars',
@@ -167,15 +176,23 @@ async function getTransformFunction(
  * doesn't return a value (unless validateReturn is false).
  */
 export async function transform(
-  codeOrFilepath: string,
+  codeOrFilepathOrFn: string | Function,
   transformInput: string | object | undefined,
   context: TransformContext,
   validateReturn: boolean = true,
   inputType: TransformInputType = TransformInputType.OUTPUT,
 ): Promise<any> {
-  const postprocessFn = await getTransformFunction(codeOrFilepath, inputType);
+  let postprocessFn: Function | null;
+
+  if (typeof codeOrFilepathOrFn === 'function') {
+    // Inline function passed directly (e.g. from the Node.js package)
+    postprocessFn = codeOrFilepathOrFn;
+  } else {
+    postprocessFn = await getTransformFunction(codeOrFilepathOrFn, inputType);
+  }
+
   if (!postprocessFn) {
-    throw new Error(`Invalid transform function for ${codeOrFilepath}`);
+    throw new Error(`Invalid transform function for ${codeOrFilepathOrFn}`);
   }
 
   // Pass the process shim for ESM compatibility in inline transforms
@@ -183,7 +200,9 @@ export async function transform(
   const ret = await Promise.resolve(postprocessFn(transformInput, context, getProcessShim()));
 
   if (validateReturn && (ret === null || ret === undefined)) {
-    throw new Error(`Transform function did not return a value\n\n${codeOrFilepath}`);
+    throw new Error(
+      `Transform function did not return a value\n\n${typeof codeOrFilepathOrFn === 'function' ? '[inline function]' : codeOrFilepathOrFn}`,
+    );
   }
 
   return ret;
